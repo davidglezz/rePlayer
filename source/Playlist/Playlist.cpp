@@ -780,6 +780,24 @@ namespace rePlayer
         return {};
     }
 
+    MusicID Playlist::GetEntry(uint32_t index) const
+    {
+        if (index < m_cue.entries.NumItems())
+            return m_cue.entries[index];
+        return {};
+    }
+
+    void Playlist::PlayEntry(int32_t index)
+    {
+        if (index < 0 || index >= static_cast<int32_t>(m_cue.entries.NumItems()))
+            return;
+
+        m_currentEntryIndex = index;
+        auto player1 = LoadCurrentSong();
+        auto player2 = LoadNextSong(false);
+        Core::GetDeck().Play(player1, player2);
+    }
+
     void Playlist::FocusSong(bool isNextSong)
     {
         m_focus = isNextSong ? Focus::kNext : Focus::kCurrent;

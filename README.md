@@ -154,6 +154,41 @@ There is a context menu (right click), to edit the windows states:
 Left click will turn on/off the Visible flag.  
 Middle click will turn on/off the invert States flag.
 
+## Web API
+
+rePlayer embeds a small HTTP server so it can be controlled from a browser.
+
+By default it listens on `http://127.0.0.1:8080/`: open that URL to get a web remote
+(now playing, transport buttons, seek, volume, loop mode and playlist).
+
+The server can be configured with environment variables:
+
+- `REPLAYER_HTTP_PORT`: listening port (default `8080`, `0` disables the server).
+- `REPLAYER_HTTP_HOST`: set to `0.0.0.0` (or `any`) to accept connections from the LAN.
+  By default it only binds to `127.0.0.1`.
+
+The API has no authentication: keep the default loopback binding unless you trust
+every device on your network.
+
+JSON endpoints:
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/status` | Current song, state, time, duration, volume, mute, loop and playlist info. |
+| GET | `/api/playlist` | Playlist entries (`index`, `title`, `artists`) and current index. |
+| POST | `/api/playpause` | Toggle play/pause. |
+| POST | `/api/next` | Next song. |
+| POST | `/api/previous` | Previous song. |
+| POST | `/api/stop` | Stop playback. |
+| POST | `/api/volume?value=0..100` | Set the volume. |
+| POST | `/api/mute` | Toggle mute (`?value=true/false` to set it). |
+| POST | `/api/seek?ms=0..` | Seek the current song. |
+| POST | `/api/play?index=0..` | Play a playlist entry. |
+| POST | `/api/loop?value=none`, `playlist` or `single` | Set the loop mode. |
+
+Requests are queued and executed on the main thread, so the player state is never
+touched from the network thread.
+
 ## The patterns
 
 Realtime display of the current played pattern.
@@ -240,7 +275,7 @@ Or add some comments (and likes) there:
 - [Opus](https://opus-codec.org): Opus Interactive Audio Codec.
 - [Organya](https://www.cavestory.org/pixels-works/org-maker.php): music format used in Cave Story.
 - [PMDWin](https://c60.la.coocan.jp): PC-98 PMD chiptunes.
-- [PreTracker](https://github.com/RetrovertApp/playback-pretracker): A C replayer for PreTracker modules — the synth-driven tracker format by Pink / Abyss.
+- [PreTracker](https://github.com/RetrovertApp/playback-pretracker): A C replayer for PreTracker modules ï¿½ the synth-driven tracker format by Pink / Abyss.
 - [ProTrekkr](https://github.com/hitchhikr/protrekkr): Tracker/Synth program.
 - [Psycle](https://sourceforge.net/projects/psycle): Psycle is a Music tracker (like FastTracker 2 or Impulse Tracker) combined with plugin modularity. It supports its own plugin API, the VST2 plugin standard, and a tracker style sampler playback.
 - [PxTone](https://pxtone.org): PxTone Collage is a free but powerful music editor made by Pixel, the creator of Cave Story and Kero Blaster.

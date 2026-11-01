@@ -1,9 +1,11 @@
 #pragma once
 
 #include <Database/Types/MusicID.h>
+#include <RePlayer/HttpApi.h>
 #include <RePlayer/RePlayer.h>
 
 #include <functional>
+#include <vector>
 
 namespace core::thread
 {
@@ -120,7 +122,12 @@ namespace rePlayer
         static Status CheckForNewVersion();
         void Reconcile();
 
+        void ExecuteHttpCommand(const HttpApi::Command& command);
+
     private:
+        HttpApi* m_httpApi = nullptr;
+        std::vector<HttpApi::Command> m_httpCommands;
+
         About* m_about = nullptr;
         Deck* m_deck = nullptr;
         Library* m_library = nullptr;

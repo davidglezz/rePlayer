@@ -5,6 +5,7 @@
 // rePlayer
 #include <Database/SongEditor.h>
 #include <Deck/Deck.h>
+#include <Deck/Player.h>
 #include <Library/Library.h>
 #include <Library/LibraryDatabase.h>
 #include <Playlist/Playlist.h>
@@ -22,11 +23,84 @@
 // stl
 #include <atomic>
 #include <csignal>
+#include <cstdlib>
+#include <cstring>
 
 #include "Core.h"
 
 namespace rePlayer
 {
+    namespace
+    {
+        std::string GetEnv(const char* name)
+        {
+            char* value = nullptr;
+            size_t length = 0;
+            if (_dupenv_s(&value, &length, name) != 0 || value == nullptr)
+                return {};
+            std::string result(value);
+            free(value);
+            return result;
+        }
+
+        ApiStatus BuildApiStatus(Deck& deck, Playlist& playlist)
+        {
+            ApiStatus status;
+            if (Player* player = deck.GetCurrentPlayer())
+            {
+                status.hasSong = true;
+                status.isPlaying = player->IsPlaying();
+                status.isPaused = !player->IsPlaying() && !player->IsStopped();
+                status.isSeekable = player->IsSeekable();
+                status.title = player->GetTitle();
+                status.artists = player->GetArtists();
+                status.metadata = player->GetMetadata();
+                status.timeMs = player->GetPlaybackTimeInMs();
+                status.durationMs = player->GetSubsong().durationCs * 10u;
+                if (status.durationMs < status.timeMs)
+                    status.durationMs = status.timeMs;
+            }
+            status.isMuted = deck.IsMuted();
+            status.volume = (deck.GetVolume() * 100 + 32767) / 65535;
+            status.loopMode = deck.GetLoopMode();
+            status.playlistIndex = playlist.GetCurrentEntryIndex();
+            status.playlistCount = static_cast<int32_t>(playlist.NumEntries());
+            return status;
+        }
+
+        std::string BuildPlaylistJson(Playlist& playlist)
+        {
+            auto count = playlist.NumEntries();
+            std::string json;
+            json.reserve(128 + count * 96);
+            json += "{\"current\":";
+            json += std::to_string(playlist.GetCurrentEntryIndex());
+            json += ",\"count\":";
+            json += std::to_string(count);
+            json += ",\"entries\":[";
+            for (uint32_t i = 0; i < count; i++)
+            {
+                if (i)
+                    json += ',';
+                auto musicId = playlist.GetEntry(i);
+                json += "{\"index\":";
+                json += std::to_string(i);
+                if (musicId.IsValid())
+                {
+                    json += ",\"title\":";
+                    json += JsonEscape(musicId.GetTitle());
+                    json += ",\"artists\":";
+                    json += JsonEscape(musicId.GetArtists());
+                }
+                else
+                    json += ",\"title\":\"(unavailable)\",\"artists\":\"\"";
+                json += '}';
+            }
+            json += "]}";
+            return json;
+        }
+    }
+
     RePlayer* Core::Create()
     {
         if (ms_instance)
@@ -80,6 +154,13 @@ namespace rePlayer
 
     Core::~Core()
     {
+        if (m_httpApi)
+        {
+            m_httpApi->Stop();
+            delete m_httpApi;
+            m_httpApi = nullptr;
+        }
+
         m_playlist->Flush();
         m_workers->Flush();
         m_library->Validate();
@@ -141,6 +222,26 @@ namespace rePlayer
             m_library = new Library();
             m_playlist = new Playlist();
             m_about = new About();
+
+            auto portValue = GetEnv("REPLAYER_HTTP_PORT");
+            uint16_t port = 8080;
+            if (!portValue.empty())
+            {
+                auto value = std::atoi(portValue.c_str());
+                port = (value > 0 && value < 65536) ? static_cast<uint16_t>(value) : 0;
+            }
+
+            auto hostValue = GetEnv("REPLAYER_HTTP_HOST");
+            bool isLanEnabled = hostValue == "0.0.0.0" || hostValue == "any";
+
+            if (port)
+            {
+                m_httpApi = HttpApi::Create(port, isLanEnabled);
+                if (m_httpApi)
+                    Log::Message("HTTP API listening on http://%s:%u/\n", isLanEnabled ? "0.0.0.0" : "127.0.0.1", port);
+                else
+                    Log::Error("HTTP API: failed to listen on port %u\n", port);
+            }
         }
 
         return Status::kOk;
@@ -152,12 +253,66 @@ namespace rePlayer
 
         Reconcile();
 
+        if (m_httpApi)
+        {
+            m_httpApi->DrainCommands(m_httpCommands);
+            for (auto& command : m_httpCommands)
+                ExecuteHttpCommand(command);
+            m_httpCommands.clear();
+        }
+
         auto status =  m_deck->UpdateFrame();
 
         for (auto* db : m_db)
             db->Update();
 
+        if (m_httpApi)
+        {
+            if (m_httpApi->ConsumePlaylistRequest())
+                m_httpApi->SetPlaylistJson(BuildPlaylistJson(*m_playlist));
+            m_httpApi->Update(BuildApiStatus(*m_deck, *m_playlist));
+        }
+
         return status;
+    }
+
+    void Core::ExecuteHttpCommand(const HttpApi::Command& command)
+    {
+        switch (command.type)
+        {
+        case HttpApi::CommandType::PlayPause:
+            m_deck->PlayPause();
+            break;
+        case HttpApi::CommandType::Next:
+            m_deck->Next();
+            break;
+        case HttpApi::CommandType::Previous:
+            m_deck->Previous();
+            break;
+        case HttpApi::CommandType::Stop:
+            m_deck->Stop();
+            break;
+        case HttpApi::CommandType::SetVolume:
+            m_deck->SetVolume(static_cast<uint32_t>(Clamp(command.value, 0, 65535)));
+            break;
+        case HttpApi::CommandType::SetMuted:
+            m_deck->SetMuted(command.value != 0);
+            break;
+        case HttpApi::CommandType::ToggleMute:
+            m_deck->MuteVolume();
+            break;
+        case HttpApi::CommandType::Seek:
+            m_deck->Seek(command.value > 0 ? static_cast<uint32_t>(command.value) : 0);
+            break;
+        case HttpApi::CommandType::PlayIndex:
+            m_playlist->PlayEntry(command.value);
+            break;
+        case HttpApi::CommandType::SetLoop:
+            m_deck->SetLoopMode(command.value);
+            break;
+        default:
+            break;
+        }
     }
 
     void Core::Enable(bool isEnabled)

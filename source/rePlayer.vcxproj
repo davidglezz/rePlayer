@@ -267,6 +267,7 @@ copy /Y $(TargetPath) $(SolutionDir)..\data\$(TargetFileName) &gt; nul 2&gt;&amp
     <ClCompile Include="RePlayer\About.cpp" />
     <ClCompile Include="RePlayer\CoreOverride.cpp" />
     <ClCompile Include="RePlayer\Export.cpp" />
+    <ClCompile Include="RePlayer\HttpApi.cpp" />
     <ClCompile Include="RePlayer\RePlayer.cpp" />
     <ClCompile Include="RePlayer\Core.cpp" />
     <ClCompile Include="RePlayer\CoreVersion.cpp" />
@@ -348,6 +349,7 @@ copy /Y $(TargetPath) $(SolutionDir)..\data\$(TargetFileName) &gt; nul 2&gt;&amp
     <ClInclude Include="Playlist\PlaylistSongsUI.h" />
     <ClInclude Include="RePlayer\About.h" />
     <ClInclude Include="RePlayer\Export.h" />
+    <ClInclude Include="RePlayer\HttpApi.h" />
     <ClInclude Include="RePlayer\RePlayer.h" />
     <ClInclude Include="RePlayer\Core.h" />
     <ClInclude Include="RePlayer\Core.inl.h" />

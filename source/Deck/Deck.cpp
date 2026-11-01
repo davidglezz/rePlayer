@@ -155,6 +155,47 @@ namespace rePlayer
         Player::SetVolume(m_volume, m_volumeCurve == VolumeCurve::Logarithmic);
     }
 
+    Player* Deck::GetCurrentPlayer() const
+    {
+        return m_currentPlayer;
+    }
+
+    void Deck::SetVolume(uint32_t volume)
+    {
+        m_isMuted = false;
+        m_volume = Clamp(static_cast<int32_t>(volume), 0, 65535);
+        Player::SetVolume(m_volume, m_volumeCurve == VolumeCurve::Logarithmic);
+    }
+
+    void Deck::SetMuted(bool isMuted)
+    {
+        if (m_isMuted == isMuted)
+            return;
+
+        if (isMuted)
+        {
+            m_mutedVolume = m_volume;
+            m_volume = 0;
+        }
+        else
+            m_volume = m_mutedVolume;
+
+        m_isMuted = isMuted;
+        Player::SetVolume(m_volume, m_volumeCurve == VolumeCurve::Logarithmic);
+    }
+
+    void Deck::SetLoopMode(int32_t loopMode)
+    {
+        if (loopMode >= 0 && loopMode < static_cast<int32_t>(Loop::Count))
+            m_loop = Loop(loopMode);
+    }
+
+    void Deck::Seek(uint32_t timeInMs)
+    {
+        if (m_currentPlayer.IsValid())
+            m_currentPlayer->Seek(timeInMs);
+    }
+
     void Deck::Discard()
     {
         if (m_currentPlayer.IsValid())

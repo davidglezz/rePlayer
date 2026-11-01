@@ -59,6 +59,10 @@ namespace rePlayer
         int32_t GetCurrentEntryIndex() const { return m_currentEntryIndex; }
 
         MusicID GetCurrentEntry() const;
+        MusicID GetEntry(uint32_t index) const;
+
+        // Loads and plays a playlist entry from the remote control.
+        void PlayEntry(int32_t index);
 
         void FocusSong(bool isNextSong = false);
 

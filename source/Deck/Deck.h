@@ -48,6 +48,16 @@ namespace rePlayer
         bool IsLooping() const { return m_loop == Loop::Playlist; }
         bool IsEndless() const { return m_loop == Loop::Single; }
 
+        // Remote control
+        Player* GetCurrentPlayer() const;
+        uint32_t GetVolume() const { return static_cast<uint32_t>(static_cast<int32_t>(m_volume)); }
+        bool IsMuted() const { return m_isMuted; }
+        int32_t GetLoopMode() const { return static_cast<int32_t>(static_cast<uint8_t>(static_cast<Loop>(m_loop))); }
+        void SetVolume(uint32_t volume);
+        void SetMuted(bool isMuted);
+        void SetLoopMode(int32_t loopMode);
+        void Seek(uint32_t timeInMs);
+
         void OnNewPlaylist();
 
         bool DisplayProgressBarInTable(MusicID id, float backgroundRatio = 0.0f);
