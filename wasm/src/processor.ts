@@ -35,6 +35,16 @@ interface SubsongMessage {
 
 type InMessage = LoadMessage | SimpleMessage | SeekMessage | VolumeMessage | SubsongMessage;
 
+// See app.ts: libxmp/v2redux reference a few WASI functions that never run.
+function wasmImports(): WebAssembly.Imports {
+    const stub = (): number => 0;
+    return {
+        wasi_snapshot_preview1: new Proxy({} as Record<string, () => number>, {
+            get: () => stub,
+        }),
+    };
+}
+
 interface WasmExports {
     memory: WebAssembly.Memory;
     rp_create(): number;
@@ -137,8 +147,8 @@ class RpProcessor extends AudioWorkletProcessor {
             }
 
             this.instance = message.module
-                ? new WebAssembly.Instance(message.module, {})
-                : (await WebAssembly.instantiate(message.wasm!, {})).instance;
+                ? new WebAssembly.Instance(message.module, wasmImports())
+                : (await WebAssembly.instantiate(message.wasm!, wasmImports())).instance;
             this.exports = this.instance.exports as unknown as WasmExports;
             this.memory = this.exports.memory;
             this.ctx = this.exports.rp_create();

@@ -6,7 +6,7 @@ const NO_CACHE = window.REPLAYER_NO_CACHE === true
     || new URLSearchParams(location.search).has('nocache')
     || new URLSearchParams(location.search).get('cache') === '0';
 
-const FORMATS: Record<number, string> = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively' };
+const FORMATS: Record<number, string> = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively', 6: 'XMP', 7: 'V2' };
 
 interface Engine {
     name: string;
@@ -70,6 +70,18 @@ interface ProcessorMessage {
     subsong?: number;
 }
 
+// libxmp and v2redux pull a few WASI symbols from wasi-libc, but the code
+// paths that use them (files, environment, clock) never run here. Provide
+// stubs so the modules instantiate in the browser and in the AudioWorklet.
+function wasmImports(): WebAssembly.Imports {
+    const stub = (): number => 0;
+    return {
+        wasi_snapshot_preview1: new Proxy({} as Record<string, () => number>, {
+            get: () => stub,
+        }),
+    };
+}
+
 type RepeatMode = 'off' | 'all' | 'one';
 
 interface Settings {
@@ -119,6 +131,17 @@ const ENGINES: Engine[] = [
     { name: 'mp3', exts: ['mp2', 'mp3', 'aix'], path: 'engines/mp3.wasm' },
     { name: 'pretracker', exts: ['prt', 'pt'], path: 'engines/pretracker.wasm' },
     { name: 'hively', exts: ['hvl', 'ahx', 'thx'], path: 'engines/hively.wasm' },
+    {
+        name: 'xmp',
+        exts: [
+            '669', 'abk', 'adsc', 'amf', 'arch', 'coco', 'dbm', 'digi', 'dsym', 'dtm',
+            'emod', 'far', 'fnk', 'gdm', 'imf', 'ims', 'it', 'j2b', 'kris', 'liq',
+            'mdl', 'med', 'mfp', 'mgt', 'mod', 'mtm', 'okt', 'psm', 'ptm', 'riff',
+            'rtm', 's3m', 'sfx', 'stk', 'stm', 'stx', 'ult', 'umx', 'xm', 'xmf',
+        ],
+        path: 'engines/xmp.wasm',
+    },
+    { name: 'v2', exts: ['v2m'], path: 'engines/v2.wasm' },
 ];
 const ALL_ENGINE: Engine = { name: 'all', exts: [], path: 'core.wasm' };
 const engineCache = new Map<string, EngineRecord>();
@@ -241,7 +264,7 @@ async function loadEngine(engine: Engine): Promise<EngineRecord> {
 }
 
 async function readMetadata(module: WebAssembly.Module, buffer: ArrayBuffer): Promise<TrackInfo | null> {
-    const instance = await WebAssembly.instantiate(module, {});
+    const instance = await WebAssembly.instantiate(module, wasmImports());
     const exports = instance.exports as unknown as WasmExports;
     const context = exports.rp_create();
     if (!context)
@@ -678,7 +701,7 @@ async function exportCurrent(): Promise<void> {
     let outputPointer = 0;
     try {
         const buffer = await file.arrayBuffer();
-        const instance = await WebAssembly.instantiate(module, {});
+        const instance = await WebAssembly.instantiate(module, wasmImports());
         exports = instance.exports as unknown as WasmExports;
         context = exports.rp_create();
         if (!context)

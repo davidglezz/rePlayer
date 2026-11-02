@@ -27,8 +27,7 @@ export interface WasmExports {
 }
 
 /** Generates a stereo 16-bit WAV with a 440 Hz sine, in memory. */
-export function makeWav(rate = 44100, seconds = 1): Buffer {
-    const frames = rate * seconds;
+export function makeWav(rate = 44100, seconds = 1): Buffer {    const frames = rate * seconds;
     const dataSize = frames * 2 * 2;
     const buffer = Buffer.alloc(44 + dataSize);
     buffer.write('RIFF', 0);
@@ -52,13 +51,50 @@ export function makeWav(rate = 44100, seconds = 1): Buffer {
     return buffer;
 }
 
+/** Generates a minimal one-pattern ProTracker MOD with one sample. */
+export function makeMod(): Buffer {
+    const header = Buffer.alloc(1084);
+    header.write('wasm test', 0, 'latin1');
+
+    const sample = 20;
+    header.write('square', sample, 'latin1');
+    header.writeUInt16BE(1, sample + 22); // length in words
+    header.writeUInt8(0, sample + 24); // finetune
+    header.writeUInt8(64, sample + 25); // volume
+    header.writeUInt16BE(0, sample + 26); // loop start
+    header.writeUInt16BE(1, sample + 28); // loop length
+
+    header.writeUInt8(1, 950); // song length: one pattern
+    header.writeUInt8(0, 951); // restart position
+    header.writeUInt8(0, 952); // order: pattern 0
+    header.write('M.K.', 1080, 'ascii');
+
+    const pattern = Buffer.alloc(1024);
+    const period = 428; // C-2
+    pattern[0] = 0x01 | ((period >> 8) & 0x0f); // sample 1 + period high nibble
+    pattern[1] = period & 0xff;
+    pattern[2] = 0x10; // sample 1 low nibble, effect 0
+    pattern[3] = 0;
+
+    return Buffer.concat([header, pattern, Buffer.from([0x40, 0xc0])]);
+}
+
 export function readWasm(relativePath: string): Buffer {
     return fs.readFileSync(path.join(WEB, relativePath));
 }
 
+export function wasiImports(): WebAssembly.Imports {
+    const stub = (): number => 0;
+    return {
+        wasi_snapshot_preview1: new Proxy({} as Record<string, () => number>, {
+            get: () => stub,
+        }),
+    };
+}
+
 export async function instantiateWasm(relativePath: string): Promise<WasmExports> {
     const bytes = new Uint8Array(readWasm(relativePath));
-    const { instance } = await WebAssembly.instantiate(bytes, {});
+    const { instance } = await WebAssembly.instantiate(bytes, wasiImports());
     return instance.exports as unknown as WasmExports;
 }
 

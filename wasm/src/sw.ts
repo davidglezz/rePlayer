@@ -2,7 +2,7 @@
 
 // Offline cache for the web player. Bump CACHE when the shell or the wasm
 // modules change.
-const CACHE = 'replayer-wasm-v3';
+const CACHE = 'replayer-wasm-v4';
 const ASSETS = [
     './',
     './index.html',
@@ -21,6 +21,8 @@ const ASSETS = [
     './engines/mp3.wasm',
     './engines/pretracker.wasm',
     './engines/hively.wasm',
+    './engines/xmp.wasm',
+    './engines/v2.wasm',
 ];
 
 const worker = self as unknown as ServiceWorkerGlobalScope;

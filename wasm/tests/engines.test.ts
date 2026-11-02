@@ -6,6 +6,7 @@ import {
     makeWav,
     readWasm,
     sampleFromEnv,
+    wasiImports,
     type WasmExports,
 } from './helpers';
 
@@ -20,8 +21,9 @@ interface LoadedModule {
 async function loadModule(relativePath: string): Promise<LoadedModule> {
     const bytes = readWasm(relativePath);
     const module = new WebAssembly.Module(new Uint8Array(bytes));
-    expect(WebAssembly.Module.imports(module), relativePath).toHaveLength(0);
-    const instance = new WebAssembly.Instance(module, {});
+    const imports = WebAssembly.Module.imports(module);
+    expect(imports.every((entry) => entry.module === 'wasi_snapshot_preview1'), relativePath).toBe(true);
+    const instance = new WebAssembly.Instance(module, wasiImports());
     return { exports: instance.exports as unknown as WasmExports, size: bytes.length };
 }
 
@@ -33,19 +35,21 @@ describe('per-engine modules', () => {
         const mp3Module = await loadModule('engines/mp3.wasm');
         const preTrackerModule = await loadModule('engines/pretracker.wasm');
         const hivelyModule = await loadModule('engines/hively.wasm');
+        const xmpModule = await loadModule('engines/xmp.wasm');
+        const v2Module = await loadModule('engines/v2.wasm');
         const allModule = await loadModule('core.wasm');
 
         expect(decodeInto(wavModule.exports, wav)?.format).toBe(1);
         expect(decodeInto(allModule.exports, wav)?.format).toBe(1);
 
-        for (const other of [flacModule, mp3Module, preTrackerModule, hivelyModule])
+        for (const other of [flacModule, mp3Module, preTrackerModule, hivelyModule, xmpModule, v2Module])
             expect(decodeInto(other.exports, wav)).toBeNull();
 
         expect(decodeInto(wavModule.exports, Buffer.from('PRT\x19'))).toBeNull();
     });
 
     it('reports a readable size for every module', async () => {
-        for (const name of ['engines/wav.wasm', 'engines/flac.wasm', 'engines/mp3.wasm', 'engines/pretracker.wasm', 'engines/hively.wasm', 'core.wasm']) {
+        for (const name of ['engines/wav.wasm', 'engines/flac.wasm', 'engines/mp3.wasm', 'engines/pretracker.wasm', 'engines/hively.wasm', 'engines/xmp.wasm', 'engines/v2.wasm', 'core.wasm']) {
             const { size } = await loadModule(name);
             expect(size).toBeGreaterThan(1024);
         }

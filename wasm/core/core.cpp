@@ -11,6 +11,8 @@
 #define RP_ENGINE_MP3 1
 #define RP_ENGINE_PRETRACKER 1
 #define RP_ENGINE_HIVELY 1
+#define RP_ENGINE_XMP 1
+#define RP_ENGINE_V2 1
 #endif
 #ifndef RP_ENGINE_WAV
 #define RP_ENGINE_WAV 0
@@ -26,6 +28,12 @@
 #endif
 #ifndef RP_ENGINE_HIVELY
 #define RP_ENGINE_HIVELY 0
+#endif
+#ifndef RP_ENGINE_XMP
+#define RP_ENGINE_XMP 0
+#endif
+#ifndef RP_ENGINE_V2
+#define RP_ENGINE_V2 0
 #endif
 
 #if RP_ENGINE_WAV
@@ -60,6 +68,17 @@ extern "C"
 }
 #endif
 
+#if RP_ENGINE_XMP
+extern "C"
+{
+#include "../../source/Replays/XMP/libxmp/include/xmp.h"
+}
+#endif
+
+#if RP_ENGINE_V2
+#include "../../source/Replays/V2/v2redux/v2redux.h"
+#endif
+
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -73,7 +92,9 @@ namespace
         kFlac,
         kMp3,
         kPreTracker,
-        kHively
+        kHively,
+        kXmp,
+        kV2
     };
 
     struct RpContext
@@ -105,6 +126,15 @@ namespace
         int16_t* hivelyTick = nullptr;
         uint32_t hivelyTickFrames = 0;
         uint32_t hivelyTickPos = 0;
+#endif
+#if RP_ENGINE_XMP
+        xmp_context xmpContext = nullptr;
+        const int16_t* xmpFrame = nullptr;
+        uint32_t xmpFrameFrames = 0;
+        uint32_t xmpFramePos = 0;
+#endif
+#if RP_ENGINE_V2
+        v2redux::Player* v2Player = nullptr;
 #endif
 
         char title[64] = {};
@@ -148,6 +178,22 @@ namespace
         ctx->hivelyTick = nullptr;
         ctx->hivelyTickFrames = 0;
         ctx->hivelyTickPos = 0;
+#endif
+#if RP_ENGINE_XMP
+        if (ctx->xmpContext)
+        {
+            xmp_end_player(ctx->xmpContext);
+            xmp_release_module(ctx->xmpContext);
+            xmp_free_context(ctx->xmpContext);
+            ctx->xmpContext = nullptr;
+        }
+        ctx->xmpFrame = nullptr;
+        ctx->xmpFrameFrames = 0;
+        ctx->xmpFramePos = 0;
+#endif
+#if RP_ENGINE_V2
+        delete ctx->v2Player;
+        ctx->v2Player = nullptr;
 #endif
 
         ctx->format = Format::kNone;
@@ -338,6 +384,62 @@ extern "C"
         }
 #endif
 
+#if RP_ENGINE_V2
+        // V2M: the two bytes after the version word are always zero.
+        if (size >= 16 && ctx->data[2] == 0 && ctx->data[3] == 0)
+        {
+            auto* player = new v2redux::Player();
+            if (player->open(ctx->data, size, v2redux::Era::Auto()) == v2redux::Result::OK)
+            {
+                long long lengthMs = player->lengthMs();
+                player->play(0);
+                ctx->v2Player = player;
+                ctx->format = Format::kV2;
+                ctx->sampleRate = 44100;
+                ctx->channels = 2;
+                ctx->totalFrames = static_cast<uint64_t>(lengthMs) * 44100 / 1000;
+                ctx->subsongCount = 1;
+                ctx->subsong = 0;
+                return 1;
+            }
+            delete player;
+        }
+#endif
+
+#if RP_ENGINE_XMP
+        // XMP is the catch-all tracker engine: MOD/XM/IT/S3M and many more.
+        // Keep it after the dedicated decoders so it cannot claim those files.
+        if (size >= 16)
+        {
+            xmp_context xmp = xmp_create_context();
+            if (xmp && xmp_load_module_from_memory(xmp, ctx->data, static_cast<long>(size)) == 0)
+            {
+                xmp_module_info info = {};
+                xmp_get_module_info(xmp, &info);
+                if (info.mod && info.num_sequences > 0
+                    && xmp_start_player(xmp, 48000, 0) == 0)
+                {
+                    xmp_set_position(xmp, info.seq_data[0].entry_point);
+                    ctx->xmpContext = xmp;
+                    ctx->format = Format::kXmp;
+                    ctx->sampleRate = 48000;
+                    ctx->channels = 2;
+                    ctx->subsongCount = info.num_sequences;
+                    ctx->subsong = 0;
+                    ctx->totalFrames = static_cast<uint64_t>(info.seq_data[0].duration) * 48000 / 1000;
+                    ctx->xmpFrame = nullptr;
+                    ctx->xmpFrameFrames = 0;
+                    ctx->xmpFramePos = 0;
+                    CopyFixedString(ctx->title, sizeof(ctx->title), info.mod->name, sizeof(info.mod->name));
+                    return 1;
+                }
+                xmp_release_module(xmp);
+            }
+            if (xmp)
+                xmp_free_context(xmp);
+        }
+#endif
+
         free(ctx->data);
         ctx->data = nullptr;
         ctx->dataSize = 0;
@@ -430,6 +532,35 @@ extern "C"
         }
 #endif
 
+#if RP_ENGINE_XMP
+        if (ctx->format == Format::kXmp)
+        {
+            xmp_module_info info = {};
+            xmp_get_module_info(ctx->xmpContext, &info);
+            if (!info.mod || index >= info.num_sequences)
+                return 0;
+            if (xmp_start_player(ctx->xmpContext, 48000, 0) != 0)
+                return 0;
+            xmp_set_position(ctx->xmpContext, info.seq_data[index].entry_point);
+            ctx->subsong = index;
+            ctx->totalFrames = static_cast<uint64_t>(info.seq_data[index].duration) * 48000 / 1000;
+            ctx->position = 0;
+            ctx->xmpFrame = nullptr;
+            ctx->xmpFrameFrames = 0;
+            ctx->xmpFramePos = 0;
+            return 1;
+        }
+#endif
+
+#if RP_ENGINE_V2
+        if (ctx->format == Format::kV2)
+        {
+            ctx->v2Player->play(0);
+            ctx->position = 0;
+            return index == 0;
+        }
+#endif
+
         return 0;
     }
 
@@ -493,6 +624,42 @@ extern "C"
             uint32_t actual = hvl_Seek(ctx->hively, ms);
             ctx->position = static_cast<uint64_t>(actual) * 48000 / 1000;
             ctx->hivelyTickPos = ctx->hivelyTickFrames;
+            return 1;
+        }
+#endif
+#if RP_ENGINE_XMP
+        case Format::kXmp:
+        {
+            uint32_t ms = static_cast<uint32_t>(frame * 1000 / 48000);
+            if (xmp_seek_time(ctx->xmpContext, static_cast<int>(ms)) < 0)
+            {
+                xmp_start_player(ctx->xmpContext, 48000, 0);
+                xmp_set_position(ctx->xmpContext, 0);
+            }
+            // xmp_seek_time lands on a pattern boundary; advance frame by
+            // frame until the reported time reaches the requested position.
+            xmp_frame_info info;
+            for (int guard = 0; guard < 1000000; ++guard)
+            {
+                xmp_get_frame_info(ctx->xmpContext, &info);
+                if (info.time >= static_cast<int>(ms))
+                    break;
+                if (xmp_play_frame(ctx->xmpContext) != 0)
+                    break;
+            }
+            ctx->position = frame < ctx->totalFrames ? frame : ctx->totalFrames;
+            ctx->xmpFrame = nullptr;
+            ctx->xmpFrameFrames = 0;
+            ctx->xmpFramePos = 0;
+            return 1;
+        }
+#endif
+#if RP_ENGINE_V2
+        case Format::kV2:
+        {
+            uint32_t ms = static_cast<uint32_t>(frame * 1000 / 44100);
+            ctx->v2Player->play(ms);
+            ctx->position = frame < ctx->totalFrames ? frame : ctx->totalFrames;
             return 1;
         }
 #endif
@@ -574,6 +741,63 @@ extern "C"
                 done += chunk;
                 ctx->hivelyTickPos += chunk;
             }
+            for (uint32_t i = count; i < frames; i++)
+            {
+                out[i * 2 + 0] = 0.0f;
+                out[i * 2 + 1] = 0.0f;
+            }
+            ctx->position += count;
+            return count;
+        }
+#endif
+#if RP_ENGINE_XMP
+        case Format::kXmp:
+        {
+            uint64_t remaining = ctx->totalFrames > ctx->position ? ctx->totalFrames - ctx->position : 0;
+            uint32_t count = remaining < frames ? static_cast<uint32_t>(remaining) : frames;
+            uint32_t done = 0;
+            while (done < count)
+            {
+                if (ctx->xmpFramePos >= ctx->xmpFrameFrames)
+                {
+                    if (xmp_play_frame(ctx->xmpContext) != 0)
+                        break;
+                    xmp_frame_info info;
+                    xmp_get_frame_info(ctx->xmpContext, &info);
+                    if (!info.buffer || info.buffer_size <= 0)
+                        break;
+                    ctx->xmpFrame = static_cast<const int16_t*>(info.buffer);
+                    ctx->xmpFrameFrames = static_cast<uint32_t>(info.buffer_size) / 4;
+                    ctx->xmpFramePos = 0;
+                }
+                uint32_t available = ctx->xmpFrameFrames - ctx->xmpFramePos;
+                uint32_t chunk = count - done < available ? count - done : available;
+                const int16_t* src = ctx->xmpFrame + ctx->xmpFramePos * 2;
+                for (uint32_t i = 0; i < chunk; i++)
+                {
+                    uint32_t dst = (done + i) * 2;
+                    out[dst + 0] = src[i * 2 + 0] / 32768.0f;
+                    out[dst + 1] = src[i * 2 + 1] / 32768.0f;
+                }
+                done += chunk;
+                ctx->xmpFramePos += chunk;
+            }
+            for (uint32_t i = count; i < frames; i++)
+            {
+                out[i * 2 + 0] = 0.0f;
+                out[i * 2 + 1] = 0.0f;
+            }
+            ctx->position += count;
+            return count;
+        }
+#endif
+#if RP_ENGINE_V2
+        case Format::kV2:
+        {
+            uint64_t remaining = ctx->totalFrames > ctx->position ? ctx->totalFrames - ctx->position : 0;
+            uint32_t count = remaining < frames ? static_cast<uint32_t>(remaining) : frames;
+            if (count > 0)
+                ctx->v2Player->render(out, count);
             for (uint32_t i = count; i < frames; i++)
             {
                 out[i * 2 + 0] = 0.0f;

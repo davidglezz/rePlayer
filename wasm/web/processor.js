@@ -6,6 +6,15 @@
 // If the AudioContext rate differs from the file rate, a small linear
 // resampler interpolates the decoded frames instead of letting the browser
 // play them at the wrong speed.
+// See app.ts: libxmp/v2redux reference a few WASI functions that never run.
+function wasmImports() {
+    const stub = () => 0;
+    return {
+        wasi_snapshot_preview1: new Proxy({}, {
+            get: () => stub,
+        }),
+    };
+}
 class RpProcessor extends AudioWorkletProcessor {
     instance = null;
     exports = null;
@@ -82,8 +91,8 @@ class RpProcessor extends AudioWorkletProcessor {
                 this.bufferPtr = 0;
             }
             this.instance = message.module
-                ? new WebAssembly.Instance(message.module, {})
-                : (await WebAssembly.instantiate(message.wasm, {})).instance;
+                ? new WebAssembly.Instance(message.module, wasmImports())
+                : (await WebAssembly.instantiate(message.wasm, wasmImports())).instance;
             this.exports = this.instance.exports;
             this.memory = this.exports.memory;
             this.ctx = this.exports.rp_create();

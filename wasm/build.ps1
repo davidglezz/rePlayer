@@ -19,8 +19,11 @@ $core = Join-Path $PSScriptRoot 'core\core.cpp'
 $inc = Join-Path $PSScriptRoot '..\source\3rdParty\dr_libs'
 $preTracker = Join-Path $PSScriptRoot '..\source\Replays\PreTracker\pretracker'
 $hively = Join-Path $PSScriptRoot '..\source\Replays\Hively\hvl'
+$xmp = Join-Path $PSScriptRoot '..\source\Replays\XMP\libxmp'
+$v2 = Join-Path $PSScriptRoot '..\source\Replays\V2\v2redux'
 $compat = Join-Path $PSScriptRoot 'core\hively_compat.h'
 $stub = Join-Path $PSScriptRoot 'core\hively_stub.c'
+$wasmStubs = Join-Path $PSScriptRoot 'core\wasm_stubs.c'
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 
 $exports = @(
@@ -48,6 +51,29 @@ $hivelySources = @(
     $stub
 )
 
+$xmpSources = @(
+    (Get-ChildItem (Join-Path $xmp 'src') -Filter '*.c' | ForEach-Object FullName)
+    (Get-ChildItem (Join-Path $xmp 'src\loaders') -Filter '*.c' | ForEach-Object FullName)
+)
+
+$v2Sources = @(
+    (Join-Path $v2 'v2core.cpp'),
+    (Join-Path $v2 'v2load.cpp'),
+    (Join-Path $v2 'v2seq.cpp'),
+    (Join-Path $v2 'v2player.cpp'),
+    (Join-Path $v2 'ronan.cpp')
+)
+
+$libcMacros = @(
+    '-Dgetenv=wasm_getenv',
+    '-Dprintf=wasm_printf',
+    '-Dfprintf=wasm_fprintf',
+    '-Dputs=wasm_puts',
+    '-Dfputs=wasm_fputs',
+    '-Dfwrite=wasm_fwrite'
+)
+$xmpMacros = $libcMacros + @('-Dtime=wasm_time')
+
 $common = @(
     'c++',
     '-target', 'wasm32-wasi',
@@ -58,6 +84,10 @@ $common = @(
     '-mexec-model=reactor',
     '-ffunction-sections',
     "-I$inc",
+    "-I$xmp\include",
+    "-I$xmp\src",
+    "-I$v2",
+    '-Wno-incompatible-pointer-types',
     '-Wl,--gc-sections',
     '-Wl,--strip-all',
     '-Wl,-z,stack-size=1048576',
@@ -71,7 +101,9 @@ $engines = @(
     @{ Name = 'mp3'; Defines = @('-DRP_ENGINE_MP3=1'); Sources = @(); Hively = $false },
     @{ Name = 'pretracker'; Defines = @('-DRP_ENGINE_PRETRACKER=1'); Sources = $preTrackerSources; Hively = $false },
     @{ Name = 'hively'; Defines = @('-DRP_ENGINE_HIVELY=1'); Sources = $hivelySources; Hively = $true },
-    @{ Name = 'all'; Defines = @('-DRP_ENGINE_ALL=1'); Sources = $preTrackerSources + $hivelySources; Hively = $true }
+    @{ Name = 'xmp'; Defines = @('-DRP_ENGINE_XMP=1', '-DLIBXMP_NO_DEPACKERS', '-DLIBXMP_NO_PROWIZARD') + $xmpMacros; Sources = $xmpSources + @($wasmStubs, $stub); Hively = $false },
+    @{ Name = 'v2'; Defines = @('-DRP_ENGINE_V2=1', '-DV2_RONAN=1') + $libcMacros; Sources = $v2Sources + @($wasmStubs, $stub); Hively = $false },
+    @{ Name = 'all'; Defines = @('-DRP_ENGINE_ALL=1', '-DLIBXMP_NO_DEPACKERS', '-DLIBXMP_NO_PROWIZARD', '-DV2_RONAN=1') + $xmpMacros; Sources = $preTrackerSources + $hivelySources + $xmpSources + $v2Sources + @($wasmStubs); Hively = $true }
 )
 
 Write-Host "zig  : $Zig"
