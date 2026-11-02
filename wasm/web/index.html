@@ -48,15 +48,19 @@
             </div>
 
             <div class="controls">
-                <button class="btn transport" id="prev" title="Anterior">&#9198;</button>
-                <button class="btn transport" id="play" title="Play / Pause">&#9654;</button>
-                <button class="btn transport" id="stop" title="Stop">&#9632;</button>
-                <button class="btn transport" id="next" title="Siguiente">&#9197;</button>
+                <div class="transport-group">
+                    <button class="btn transport" id="prev" title="Anterior">&#9198;</button>
+                    <button class="btn transport" id="play" title="Play / Pause">&#9654;</button>
+                    <button class="btn transport" id="stop" title="Stop">&#9632;</button>
+                    <button class="btn transport" id="next" title="Siguiente">&#9197;</button>
+                </div>
+                <div class="volume">
+                    <button class="btn icon" id="mute" title="Mute">&#128266;</button>
+                    <input type="range" id="vol" min="0" max="100" value="80" title="Volumen">
+                </div>
             </div>
 
             <div class="row">
-                <button class="btn icon" id="mute" title="Mute">&#128266;</button>
-                <input type="range" id="vol" min="0" max="100" value="80" title="Volumen">
                 <span class="status" id="status">listo</span>
             </div>
 
