@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>rePlayer wasm</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="app">
+        <header class="topbar">
+            <div class="brand"><span class="dot" id="dot"></span> rePlayer <small>wasm</small></div>
+            <div class="badge" id="format">sin archivo</div>
+        </header>
+
+        <section class="panel drop" id="drop">
+            <div class="drop-icon">&#9835;</div>
+            <h1>Arrastra un archivo de audio</h1>
+            <p>o elige uno desde el disco</p>
+            <button class="btn primary" id="pick">Elegir archivo</button>
+            <p class="hint">WAV, FLAC o MP3 · todo se decodifica en local con el core wasm</p>
+            <input type="file" id="file" accept=".wav,.flac,.mp3,audio/*" hidden>
+        </section>
+
+        <section class="panel player" id="player" hidden>
+            <div class="now">
+                <div class="art">&#9835;</div>
+                <div class="info">
+                    <h1 id="title">—</h1>
+                    <p id="meta" class="meta"></p>
+                </div>
+                <button class="btn ghost" id="change" title="Cargar otro archivo">Cambiar</button>
+            </div>
+
+            <div class="progress">
+                <input type="range" id="seek" min="0" max="1000" value="0" disabled>
+                <div class="times"><span id="time">0:00</span><span id="duration">0:00</span></div>
+            </div>
+
+            <div class="controls">
+                <button class="btn transport" id="play" title="Play / Pause">&#9654;</button>
+                <button class="btn transport" id="stop" title="Stop">&#9632;</button>
+            </div>
+
+            <div class="row">
+                <button class="btn icon" id="mute" title="Mute">&#128266;</button>
+                <input type="range" id="vol" min="0" max="100" value="80" title="Volumen">
+                <span class="status" id="status">listo</span>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <span>WAV · FLAC · MP3</span>
+            <span id="tech">cargando core wasm…</span>
+        </footer>
+    </main>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
