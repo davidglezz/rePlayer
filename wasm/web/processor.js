@@ -40,8 +40,9 @@ class RpProcessor extends AudioWorkletProcessor {
                 break;
             case 'seek':
                 if (this.ctx) {
-                    this.exports.rp_seek(this.ctx, BigInt(message.frame));
-                    this.position = message.frame;
+                    const ok = this.exports.rp_seek(this.ctx, BigInt(message.frame));
+                    if (ok)
+                        this.position = message.frame;
                 }
                 break;
             case 'volume':

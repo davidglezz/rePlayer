@@ -8,22 +8,29 @@ app Win32, DirectX, ImGui, las DLLs de los 62 motores ni la base de datos.
 
 ```
 wasm/
-  core/core.cpp     # decodificadores WAV/FLAC/MP3 + ABI C
+  core/core.cpp     # WAV/FLAC/MP3/PreTracker + ABI C
   build.ps1         # compila core.wasm con zig (clang + wasm-ld)
   web/index.html    # UI
   web/app.js        # carga de archivos, AudioContext, controles
   web/processor.js  # AudioWorklet: renderiza PCM desde el wasm
-  web/core.wasm     # artefacto compilado (141 KB, sin imports)
+  web/core.wasm     # artefacto compilado (166 KB, sin imports)
   server.mjs        # servidor estático local
+  test-core.cjs     # test de humo del core en Node
 ```
 
 ## Formatos y ABI
 
-- **WAV** (`dr_wav`), **FLAC** (`dr_flac`), **MP3** (`dr_mp3`), todos desde
+- **WAV** (`dr_wav`), **FLAC** (`dr_flac`), **MP3** (`dr_mp3`) y
+  **PreTracker** (`source/Replays/PreTracker/pretracker`, MIT). Todos desde
   memoria, sin sistema de ficheros.
+- PreTracker es el primer **motor real de rePlayer** integrado en el core:
+  usa su API C (`pre_song_create(data, size)`, `pre_song_decode`), se configura
+  a 48 kHz y se renderiza a estéreo. `pre_song_get_length()` avanza el player,
+  así que el core lo reinicia después de consultar la duración.
 - ABI C mínima: `rp_create`, `rp_load`, `rp_sample_rate`, `rp_channels`,
   `rp_frames`, `rp_position`, `rp_format`, `rp_seek`, `rp_render`,
   `rp_destroy`, y `malloc`/`free` para pasar los bytes del archivo.
+  `rp_format` devuelve `1` WAV, `2` FLAC, `3` MP3, `4` PreTracker.
 - El módulo **no tiene imports** (`wasm32-wasi` en modo reactor): no usa WASI,
   hilos ni el filesystem. `WebAssembly.Module` se envía al `AudioWorklet`, que
   instancia el core en el hilo de audio y va pidiendo bloques con `rp_render`.
@@ -43,6 +50,8 @@ Test rápido del core (genera un WAV en memoria, sin navegador):
 
 ```powershell
 node .\wasm\test-core.cjs
+# y, opcionalmente, un .prt/.pt para probar PreTracker:
+node .\wasm\test-core.cjs C:\ruta\a\modulo.prt
 ```
 
 ## Ejecutar
@@ -56,8 +65,10 @@ Abre **http://127.0.0.1:8787/**, arrastra un WAV/FLAC/MP3 y dale a play.
 
 ## Limitaciones de este prototipo
 
-- Solo 3 motores (WAV/FLAC/MP3). El resto de los 62 necesitaría una ABI C por
-  motor o un proxy que envuelva el `ReplayPlugin` actual.
+- 4 motores (WAV/FLAC/MP3/PreTracker). El resto de los 62 necesitaría una ABI C
+  por motor o un proxy que envuelva el `ReplayPlugin` actual.
+- PreTracker no tiene seek nativo: el core reinicia el player y descarta frames
+  hasta la posición pedida. Funciona, pero un seek lejano tarda.
 - Sin resampling: el `AudioContext` se crea con la frecuencia del archivo. Si el
   navegador la rechaza, se avisa y el tono/velocidad puede cambiar.
 - Sin metadatos (título/artista) ni carátulas; se usa el nombre del archivo.
@@ -68,7 +79,7 @@ Abre **http://127.0.0.1:8787/**, arrastra un WAV/FLAC/MP3 y dale a play.
 ## Siguiente paso lógico
 
 1. Envolver el `ReplayPlugin` existente en una ABI C estable (opaque handle) y
-   compilar un motor piloto más complejo (p. ej. OpenMPT o VGMStream) a wasm.
+   compilar otro motor piloto (p. ej. Hively, OpenMPT o VGMStream) a wasm.
 2. Añadir resampling lineal en el `AudioWorklet` para aceptar cualquier
    frecuencia de contexto.
 3. Añadir metadatos (ID3/FLAC tags) y playlist en la UI.

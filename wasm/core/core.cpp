@@ -17,6 +17,11 @@
 #include "../../source/3rdParty/dr_libs/dr_flac.h"
 #include "../../source/3rdParty/dr_libs/dr_mp3.h"
 
+extern "C"
+{
+#include "../../source/Replays/PreTracker/pretracker/pretracker.h"
+}
+
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -28,7 +33,8 @@ namespace
         kNone = 0,
         kWav,
         kFlac,
-        kMp3
+        kMp3,
+        kPreTracker
     };
 
     struct RpContext
@@ -44,6 +50,7 @@ namespace
         drwav wav = {};
         drmp3 mp3 = {};
         drflac* flac = nullptr;
+        PreSong* preTracker = nullptr;
 
         float* scratch = nullptr;
         uint64_t scratchCapacity = 0; // in floats
@@ -61,6 +68,12 @@ namespace
         }
         else if (ctx->format == Format::kMp3)
             drmp3_uninit(&ctx->mp3);
+        else if (ctx->format == Format::kPreTracker)
+        {
+            if (ctx->preTracker)
+                pre_song_destroy(ctx->preTracker);
+            ctx->preTracker = nullptr;
+        }
 
         ctx->format = Format::kNone;
         free(ctx->data);
@@ -142,6 +155,26 @@ extern "C"
             return 1;
         }
 
+        // PreTracker: big-endian magic "PRT" + version byte.
+        if (size >= 0x5A && ctx->data[0] == 'P' && ctx->data[1] == 'R' && ctx->data[2] == 'T')
+        {
+            ctx->preTracker = pre_song_create(ctx->data, size);
+            if (ctx->preTracker)
+            {
+                pre_song_set_sample_rate(ctx->preTracker, 48000);
+                pre_song_start(ctx->preTracker);
+                // pre_song_get_length() advances the player to the end, so
+                // restart it afterwards.
+                int length = pre_song_get_length(ctx->preTracker);
+                pre_song_start(ctx->preTracker);
+                ctx->format = Format::kPreTracker;
+                ctx->sampleRate = 48000;
+                ctx->channels = 2;
+                ctx->totalFrames = length > 0 ? static_cast<uint64_t>(length) : 0;
+                return 1;
+            }
+        }
+
         free(ctx->data);
         ctx->data = nullptr;
         ctx->dataSize = 0;
@@ -196,6 +229,34 @@ extern "C"
         case Format::kMp3:
             ok = drmp3_seek_to_pcm_frame(&ctx->mp3, frame) != 0;
             break;
+        case Format::kPreTracker:
+        {
+            // PreTracker has no native seek: restart and discard frames.
+            pre_song_start(ctx->preTracker);
+
+            const uint32_t chunk = 2048;
+            const uint64_t needed = static_cast<uint64_t>(chunk) * 2;
+            if (needed > ctx->scratchCapacity)
+            {
+                auto* scratch = static_cast<float*>(realloc(ctx->scratch, static_cast<size_t>(needed) * sizeof(float)));
+                if (!scratch)
+                    return 0;
+                ctx->scratch = scratch;
+                ctx->scratchCapacity = needed;
+            }
+
+            uint64_t remaining = frame;
+            while (remaining > 0)
+            {
+                uint32_t count = remaining < chunk ? static_cast<uint32_t>(remaining) : chunk;
+                int got = pre_song_decode(ctx->preTracker, ctx->scratch, static_cast<int>(count));
+                if (got <= 0)
+                    break;
+                remaining -= static_cast<uint64_t>(got);
+            }
+            ctx->position = frame - remaining;
+            return 1;
+        }
         default:
             break;
         }
@@ -235,6 +296,12 @@ extern "C"
         case Format::kMp3:
             read = drmp3_read_pcm_frames_f32(&ctx->mp3, frames, ctx->scratch);
             break;
+        case Format::kPreTracker:
+        {
+            int got = pre_song_decode(ctx->preTracker, ctx->scratch, static_cast<int>(frames));
+            read = got > 0 ? static_cast<uint64_t>(got) : 0;
+            break;
+        }
         default:
             return 0;
         }

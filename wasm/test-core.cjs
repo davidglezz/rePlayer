@@ -80,6 +80,44 @@ function check(condition, message) {
     e.rp_destroy(ctx);
 
     console.log('ok: WAV load/render/seek/end/destroy');
+
+    const prtPath = process.argv[2];
+    if (prtPath) {
+        const prt = fs.readFileSync(prtPath);
+        const prtCtx = e.rp_create();
+        const prtPtr = e.malloc(prt.length);
+        check(prtPtr !== 0, 'malloc failed (prt)');
+        new Uint8Array(e.memory.buffer, prtPtr, prt.length).set(prt);
+        check(e.rp_load(prtCtx, prtPtr, prt.length) === 1, 'PRT load failed');
+        e.free(prtPtr);
+
+        check(e.rp_format(prtCtx) === 4, 'expected PreTracker');
+        check(e.rp_sample_rate(prtCtx) === 48000, 'bad PRT sample rate');
+        check(e.rp_channels(prtCtx) === 2, 'bad PRT channels');
+        const prtFrames = Number(e.rp_frames(prtCtx));
+        check(prtFrames > 0, 'bad PRT length');
+
+        const prtOut = e.malloc(block * 2 * 4);
+        const prtRead = e.rp_render(prtCtx, prtOut, block);
+        const prtSamples = new Float32Array(e.memory.buffer, prtOut, block * 2);
+        check(prtRead > 0, 'PRT render returned 0');
+        let nonZero = false;
+        for (let i = 0; i < prtRead * 2; i++) {
+            if (Math.abs(prtSamples[i]) > 0.0001) {
+                nonZero = true;
+                break;
+            }
+        }
+        check(nonZero, 'PRT rendered silence');
+
+        const half = BigInt(Math.floor(prtFrames / 2));
+        check(e.rp_seek(prtCtx, half) === 1, 'PRT seek failed');
+        e.free(prtOut);
+        e.rp_destroy(prtCtx);
+        console.log(`ok: PreTracker load/render/seek/destroy (${prtFrames} frames @ 48 kHz)`);
+    } else {
+        console.log('(pasa un .prt/.pt como argumento para probar PreTracker)');
+    }
 })().catch((error) => {
     console.error('FAIL:', error.message);
     process.exit(1);

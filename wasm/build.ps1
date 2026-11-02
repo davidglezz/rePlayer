@@ -16,8 +16,19 @@ if (-not (Get-Command $Zig -ErrorAction SilentlyContinue) -and -not (Test-Path $
 
 $src = Join-Path $PSScriptRoot 'core\core.cpp'
 $inc = Join-Path $PSScriptRoot '..\source\3rdParty\dr_libs'
+$preTracker = Join-Path $PSScriptRoot '..\source\Replays\PreTracker\pretracker'
 $outDir = Split-Path -Parent $Out
 New-Item -ItemType Directory -Force $outDir | Out-Null
+
+$sources = @(
+    $src,
+    (Join-Path $preTracker 'pretracker.c'),
+    (Join-Path $preTracker 'pretracker_parse.c'),
+    (Join-Path $preTracker 'pretracker_sequencer.c'),
+    (Join-Path $preTracker 'pretracker_mixer.c'),
+    (Join-Path $preTracker 'pretracker_tables.c'),
+    (Join-Path $preTracker 'pretracker_wavegen.c')
+)
 
 $exports = @(
     'rp_create', 'rp_destroy', 'rp_load',
@@ -41,7 +52,7 @@ $arguments = @(
     '-Wl,--max-memory=1073741824'
 )
 foreach ($e in $exports) { $arguments += "-Wl,--export=$e" }
-$arguments += @('-o', $Out, $src)
+$arguments += @('-o', $Out) + $sources + @('-lm')
 
 Write-Host "zig  : $Zig"
 Write-Host "src  : $src"
