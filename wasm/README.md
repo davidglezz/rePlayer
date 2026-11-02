@@ -16,6 +16,7 @@ wasm/
   web/core.wasm     # artefacto compilado (167 KB, sin imports)
   server.mjs        # servidor estático local
   test-core.cjs     # test de humo del core en Node
+  test-processor.cjs# test del AudioWorklet (directo + resampling)
 ```
 
 ## Formatos y ABI
@@ -53,6 +54,9 @@ Test rápido del core (genera un WAV en memoria, sin navegador):
 node .\wasm\test-core.cjs
 # y, opcionalmente, un .prt/.pt para probar PreTracker:
 node .\wasm\test-core.cjs C:\ruta\a\modulo.prt
+
+# AudioWorklet: render directo y resampling 44.1k -> 48k
+node .\wasm\test-processor.cjs
 ```
 
 ## Ejecutar
@@ -70,8 +74,9 @@ Abre **http://127.0.0.1:8787/**, arrastra un WAV/FLAC/MP3 y dale a play.
   por motor o un proxy que envuelva el `ReplayPlugin` actual.
 - PreTracker no tiene seek nativo: el core reinicia el player y descarta frames
   hasta la posición pedida. Funciona, pero un seek lejano tarda.
-- Sin resampling: el `AudioContext` se crea con la frecuencia del archivo. Si el
-  navegador la rechaza, se avisa y el tono/velocidad puede cambiar.
+- El `AudioContext` se intenta crear con la frecuencia del archivo. Si el
+  navegador impone otra, el `AudioWorklet` hace **resampling lineal** en tiempo
+  real (se muestra `resampling X → Y Hz`).
 - Sin metadatos (título/artista) ni carátulas; se usa el nombre del archivo.
 - Sin playlist, biblioteca, búsqueda, base de datos ni ajustes persistentes.
 - Sin hilos ni `SharedArrayBuffer`; toda la decodificación ocurre en el

@@ -68,7 +68,7 @@ function updateTrackInfo() {
     $('meta').textContent = `${artist}${format} · ${(state.rate / 1000).toFixed(1)} kHz · ${state.channels} ${state.channels === 1 ? 'canal' : 'canales'} · ${fmtTime(state.duration)}`;
     $('format').textContent = format;
     $('duration').textContent = fmtTime(state.duration);
-    $('tech').textContent = `${state.frames.toLocaleString()} frames`;
+    $('tech').textContent = `${state.frames.toLocaleString()} frames · ${state.rate} Hz`;
 }
 
 function onProcessorMessage(message) {
@@ -79,7 +79,10 @@ function onProcessorMessage(message) {
             $('seek').disabled = false;
             updatePosition();
             updateTransport();
-            setStatus(`${FORMATS[state.format] || 'audio'} listo`);
+            if (message.ratio && Math.abs(message.ratio - 1) > 1e-6)
+                setStatus(`resampling ${message.sampleRate} → ${message.contextSampleRate} Hz`);
+            else
+                setStatus(`${FORMATS[state.format] || 'audio'} listo`);
             break;
         case 'position':
             if (!state.seeking) {
@@ -132,9 +135,8 @@ async function startAudio() {
     }
     state.audioContext = context;
 
-    if (Math.abs(context.sampleRate - state.rate) > 1) {
-        setStatus(`Aviso: contexto a ${context.sampleRate} Hz y archivo a ${state.rate} Hz`, true);
-    }
+    if (Math.abs(context.sampleRate - state.rate) > 1)
+        setStatus(`resampling ${state.rate} → ${context.sampleRate} Hz`);
 
     await context.audioWorklet.addModule('processor.js');
 
