@@ -105,6 +105,7 @@ const state = {
     pendingAutoplay: false,
     loading: false,
     loadToken: 0,
+    exporting: false,
 };
 
 function engineForFile(file) {
@@ -187,6 +188,7 @@ function updateTransport() {
     $('play').disabled = !state.node;
     $('prev').disabled = state.queue.length === 0;
     $('next').disabled = state.queue.length === 0;
+    $('export').disabled = !state.file || state.exporting;
     const atEnd = state.frames > 0 && state.position >= state.frames;
     $('dot').className = 'dot ' + (state.playing ? 'playing' : (state.position > 0 && !atEnd ? 'paused' : ''));
     if ('mediaSession' in navigator)
@@ -324,6 +326,7 @@ async function removeFromQueue(index) {
             const nextIndex = Math.min(index, state.queue.length - 1);
             playIndex(nextIndex, true);
         } else {
+            state.file = null;
             $('player').hidden = true;
             $('drop').hidden = false;
             setStatus('playlist vacía');
@@ -344,6 +347,7 @@ async function clearQueue() {
 
     state.queue = [];
     state.queueIndex = -1;
+    state.file = null;
     state.loadToken++;
     state.loading = false;
     await stopAudio();
@@ -528,6 +532,106 @@ async function startAudio(autoplay) {
         await context.resume();
 }
 
+function writeAscii(view, offset, text) {
+    for (let i = 0; i < text.length; i++)
+        view.setUint8(offset + i, text.charCodeAt(i));
+}
+
+async function exportCurrent() {
+    if (!state.file || !state.module || state.exporting)
+        return;
+
+    const file = state.file;
+    const module = state.module;
+    state.exporting = true;
+    updateTransport();
+    setStatus('exportando…');
+
+    let context = 0;
+    let exports = null;
+    let outputPointer = 0;
+    try {
+        const buffer = await file.arrayBuffer();
+        const { instance } = await WebAssembly.instantiate(module, {});
+        exports = instance.exports;
+        context = exports.rp_create();
+        if (!context)
+            throw new Error('no se pudo crear el contexto del decodificador');
+
+        const pointer = exports.malloc(buffer.byteLength);
+        if (!pointer)
+            throw new Error('sin memoria para cargar el archivo');
+        new Uint8Array(exports.memory.buffer, pointer, buffer.byteLength).set(new Uint8Array(buffer));
+        const loaded = exports.rp_load(context, pointer, buffer.byteLength);
+        exports.free(pointer);
+        if (!loaded)
+            throw new Error('formato no soportado o archivo corrupto');
+
+        const frames = Number(exports.rp_frames(context));
+        const rate = exports.rp_sample_rate(context);
+        const block = 4096;
+        outputPointer = exports.malloc(block * 2 * 4);
+        if (!outputPointer)
+            throw new Error('sin memoria para renderizar');
+
+        const pcmChunks = [];
+        let done = 0;
+        while (done < frames) {
+            const want = Math.min(block, frames - done);
+            const got = exports.rp_render(context, outputPointer, want);
+            if (got <= 0)
+                break;
+            const floats = new Float32Array(exports.memory.buffer, outputPointer, got * 2);
+            const pcm = new Int16Array(got * 2);
+            for (let i = 0; i < got * 2; i++) {
+                const sample = Math.max(-1, Math.min(1, floats[i]));
+                pcm[i] = sample < 0 ? sample * 32768 : sample * 32767;
+            }
+            pcmChunks.push(new Uint8Array(pcm.buffer));
+            done += got;
+            if (frames > block * 32 && done % (block * 16) === 0)
+                setStatus(`exportando… ${Math.round((done / frames) * 100)}%`);
+        }
+
+        const dataSize = done * 4;
+        const header = new ArrayBuffer(44);
+        const view = new DataView(header);
+        writeAscii(view, 0, 'RIFF');
+        view.setUint32(4, 36 + dataSize, true);
+        writeAscii(view, 8, 'WAVE');
+        writeAscii(view, 12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 2, true);
+        view.setUint32(24, rate, true);
+        view.setUint32(28, rate * 4, true);
+        view.setUint16(32, 4, true);
+        view.setUint16(34, 16, true);
+        writeAscii(view, 36, 'data');
+        view.setUint32(40, dataSize, true);
+
+        const blob = new Blob([header].concat(pcmChunks), { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.name.replace(/\.[^.]+$/, '') + '.wav';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        setStatus(`WAV exportado (${(blob.size / 1048576).toFixed(1)} MB)`);
+    } catch (error) {
+        setStatus(`export: ${error && error.message ? error.message : error}`, true);
+    } finally {
+        if (context && exports)
+            exports.rp_destroy(context);
+        if (outputPointer && exports)
+            exports.free(outputPointer);
+        state.exporting = false;
+        updateTransport();
+    }
+}
+
 async function loadFile(file, autoplay = false) {
     const token = ++state.loadToken;
     state.loading = true;
@@ -669,6 +773,7 @@ $('file').onchange = () => {
 
 $('play').onclick = () => togglePlay();
 $('stop').onclick = () => stopPlayback();
+$('export').onclick = () => exportCurrent();
 $('prev').onclick = () => previous();
 $('next').onclick = () => next();
 $('shuffle').onclick = () => {

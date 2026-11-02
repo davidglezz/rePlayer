@@ -19,6 +19,7 @@ wasm/
   test-core.cjs     # test de humo del core en Node
   test-engines.cjs  # test de los módulos por motor
   test-processor.cjs# test del AudioWorklet (directo + resampling)
+  test-export.cjs   # test de exportación a WAV
 ```
 
 ## Formatos y ABI
@@ -91,6 +92,9 @@ node .\wasm\test-processor.cjs
 
 # módulos por motor (y aislamiento de formatos)
 node .\wasm\test-engines.cjs C:\ruta\a\modulo.prt C:\ruta\a\modulo.hvl
+
+# exportación a WAV
+node .\wasm\test-export.cjs
 ```
 
 ## Ejecutar
@@ -113,6 +117,8 @@ Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
 - **Media Session**: título/artista, play/pausa, anterior/siguiente y seek desde
   las teclas multimedia o el sistema operativo.
 - **Persistencia**: volumen, repetir y aleatorio se guardan en `localStorage`.
+- **Exportar WAV**: el botón `WAV` renderiza el tema actual con el core y
+  descarga un WAV PCM 16-bit estéreo.
 - Los ficheros que no se pueden cargar muestran el error y se pueden quitar de
   la lista; no bloquean el resto.
 
