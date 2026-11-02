@@ -1,6 +1,6 @@
 // Offline cache for the web player. Bump CACHE when the shell or the wasm
 // modules change.
-const CACHE = 'replayer-wasm-v1';
+const CACHE = 'replayer-wasm-v2';
 const ASSETS = [
     './',
     './index.html',

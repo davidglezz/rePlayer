@@ -2,6 +2,10 @@ import { readTags } from './tags.js';
 
 const $ = (id) => document.getElementById(id);
 
+const NO_CACHE = window.REPLAYER_NO_CACHE === true
+    || new URLSearchParams(location.search).has('nocache')
+    || new URLSearchParams(location.search).get('cache') === '0';
+
 const FORMATS = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively' };
 
 const ENGINES = [
@@ -118,7 +122,8 @@ function engineForFile(file) {
 async function loadEngine(engine) {
     if (engineCache.has(engine.path))
         return engineCache.get(engine.path);
-    const response = await fetch(engine.path, { cache: 'no-store' });
+    const url = NO_CACHE ? `${engine.path}?nocache=${Date.now()}` : engine.path;
+    const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok)
         throw new Error(`no se pudo cargar ${engine.path} (${response.status})`);
     const bytes = await response.arrayBuffer();
@@ -502,7 +507,7 @@ async function startAudio(autoplay) {
     if (Math.abs(context.sampleRate - state.rate) > 1)
         setStatus(`resampling ${state.rate} → ${context.sampleRate} Hz`);
 
-    await context.audioWorklet.addModule('processor.js');
+    await context.audioWorklet.addModule(NO_CACHE ? `processor.js?nocache=${Date.now()}` : 'processor.js');
 
     const node = new AudioWorkletNode(context, 'rp-player', {
         numberOfInputs: 0,
@@ -855,8 +860,27 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* offline cache is optional */ });
+if (NO_CACHE) {
+    // Development mode: drop any installed worker and cached assets, then
+    // reload once so the current page stops being controlled by it.
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations()
+            .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+            .then(() => 'caches' in window ? caches.keys() : [])
+            .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+            .then(() => {
+                if (navigator.serviceWorker.controller && !sessionStorage.getItem('rp-nocache-reload')) {
+                    sessionStorage.setItem('rp-nocache-reload', '1');
+                    location.reload();
+                }
+            })
+            .catch(() => { /* cache is optional */ });
+    }
+} else {
+    try { sessionStorage.removeItem('rp-nocache-reload'); } catch (e) { /* ignore */ }
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => { /* offline cache is optional */ });
+    }
 }
 
 (function init() {
@@ -870,8 +894,8 @@ if ('serviceWorker' in navigator) {
     if (typeof saved.shuffle === 'boolean')
         state.shuffle = saved.shuffle;
 
-    $('tech').textContent = 'motores bajo demanda';
-    setStatus('listo');
+    $('tech').textContent = NO_CACHE ? 'cache off · motores bajo demanda' : 'motores bajo demanda';
+    setStatus(NO_CACHE ? 'cache desactivada' : 'listo');
     renderPlaylist();
     updateModeButtons();
     setupMediaSession();

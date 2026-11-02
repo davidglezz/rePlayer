@@ -78,6 +78,18 @@
             <span id="tech">cargando core wasm…</span>
         </footer>
     </main>
-    <script type="module" src="app.js"></script>
+    <script type="module">
+        // The query flag also lets us bypass an already-installed service
+        // worker: the document URL with ?nocache misses its cache, and this
+        // loader requests a fresh app.js.
+        const params = new URLSearchParams(location.search);
+        const noCache = window.REPLAYER_NO_CACHE === true
+            || params.has('nocache')
+            || params.get('cache') === '0';
+        const script = document.createElement('script');
+        script.type = 'module';
+        script.src = noCache ? `app.js?nocache=${Date.now()}` : 'app.js';
+        document.body.appendChild(script);
+    </script>
 </body>
 </html>

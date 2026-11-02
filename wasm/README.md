@@ -137,6 +137,28 @@ Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
   el `AudioWorklet` y el service worker).
 - Si cambias la UI o los `.wasm`, sube `CACHE` en `sw.js` para invalidar.
 
+## Desarrollo sin cache
+
+Para que el service worker no sirva versiones antiguas mientras trabajas:
+
+```powershell
+node .\wasm\server.mjs --no-cache
+# o abre http://127.0.0.1:8787/?nocache=1
+# también vale ?cache=0 o la variable NO_CACHE=1
+```
+
+El flag:
+
+- no registra el service worker;
+- desregistra los existentes y vacía `Cache Storage`;
+- recarga una vez para soltar el controlador;
+- añade `?nocache=` a los módulos wasm y al `AudioWorklet`.
+
+El servidor `--no-cache` además sirve un `sw.js` que se autodesregistra. Si ya
+tenías el service worker antiguo, la forma más fiable es abrir con
+`?nocache=1` (la URL con query no coincide con la clave cacheada). En modo
+normal, `node .\wasm\server.mjs` mantiene la PWA offline.
+
 ## Limitaciones de este prototipo
 
 - 5 motores (WAV/FLAC/MP3/PreTracker/Hively). El resto de los 62 necesitaría
