@@ -2,7 +2,7 @@
 /// <reference lib="webworker" />
 // Offline cache for the web player. Bump CACHE when the shell or the wasm
 // modules change.
-const CACHE = 'replayer-wasm-v4';
+const CACHE = 'replayer-wasm-v5';
 const ASSETS = [
     './',
     './index.html',
@@ -23,6 +23,7 @@ const ASSETS = [
     './engines/hively.wasm',
     './engines/xmp.wasm',
     './engines/v2.wasm',
+    './engines/gme.wasm',
 ];
 const worker = self;
 worker.addEventListener('install', (event) => {

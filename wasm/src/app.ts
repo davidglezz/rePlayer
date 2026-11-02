@@ -6,7 +6,7 @@ const NO_CACHE = window.REPLAYER_NO_CACHE === true
     || new URLSearchParams(location.search).has('nocache')
     || new URLSearchParams(location.search).get('cache') === '0';
 
-const FORMATS: Record<number, string> = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively', 6: 'XMP', 7: 'V2' };
+const FORMATS: Record<number, string> = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively', 6: 'XMP', 7: 'V2', 8: 'GME' };
 
 interface Engine {
     name: string;
@@ -142,6 +142,11 @@ const ENGINES: Engine[] = [
         path: 'engines/xmp.wasm',
     },
     { name: 'v2', exts: ['v2m'], path: 'engines/v2.wasm' },
+    {
+        name: 'gme',
+        exts: ['ay', 'gbs', 'gym', 'hes', 'kss', 'nsf', 'nsfe', 'sap', 'spc', 'vgm', 'vgz'],
+        path: 'engines/gme.wasm',
+    },
 ];
 const ALL_ENGINE: Engine = { name: 'all', exts: [], path: 'core.wasm' };
 const engineCache = new Map<string, EngineRecord>();

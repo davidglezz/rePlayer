@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { decodeInto, instantiateWasm, makeMod, makeWav, sampleFromEnv, type WasmExports } from './helpers';
+import { decodeInto, instantiateWasm, makeMod, makeVgm, makeWav, sampleFromEnv, type WasmExports } from './helpers';
 
 const v2Path = sampleFromEnv('REPLAYER_V2');
 
@@ -52,6 +52,28 @@ describe('XMP tracker engine', () => {
     it('only accepts tracker modules', async () => {
         const xmp = await instantiateWasm('engines/xmp.wasm');
         expect(decodeInto(xmp, makeWav())).toBeNull();
+    });
+});
+
+describe('GME engine', () => {
+    it('loads a minimal VGM', async () => {
+        const gme = await instantiateWasm('engines/gme.wasm');
+        const context = load(gme, makeVgm());
+
+        expect(gme.rp_format(context)).toBe(8);
+        expect(gme.rp_sample_rate(context)).toBe(48000);
+        expect(Number(gme.rp_frames(context))).toBeGreaterThan(0);
+
+        const output = gme.malloc(4096 * 2 * 4);
+        expect(gme.rp_render(context, output, 4096)).toBe(4096);
+        gme.free(output);
+        expect(gme.rp_seek(context, 0n)).toBe(1);
+        gme.rp_destroy(context);
+    });
+
+    it('only accepts supported chiptune formats', async () => {
+        const gme = await instantiateWasm('engines/gme.wasm');
+        expect(decodeInto(gme, makeWav())).toBeNull();
     });
 });
 

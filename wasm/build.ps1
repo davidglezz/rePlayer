@@ -21,6 +21,7 @@ $preTracker = Join-Path $PSScriptRoot '..\source\Replays\PreTracker\pretracker'
 $hively = Join-Path $PSScriptRoot '..\source\Replays\Hively\hvl'
 $xmp = Join-Path $PSScriptRoot '..\source\Replays\XMP\libxmp'
 $v2 = Join-Path $PSScriptRoot '..\source\Replays\V2\v2redux'
+$gme = Join-Path $PSScriptRoot '..\source\Replays\GME\gme'
 $compat = Join-Path $PSScriptRoot 'core\hively_compat.h'
 $stub = Join-Path $PSScriptRoot 'core\hively_stub.c'
 $wasmStubs = Join-Path $PSScriptRoot 'core\wasm_stubs.c'
@@ -64,6 +65,11 @@ $v2Sources = @(
     (Join-Path $v2 'ronan.cpp')
 )
 
+$gmeSources = @(
+    (Get-ChildItem (Join-Path $gme 'gme') -Filter '*.cpp' | ForEach-Object FullName)
+    (Join-Path $gme 'gme\ext\emu2413.c')
+)
+
 $libcMacros = @(
     '-Dgetenv=wasm_getenv',
     '-Dprintf=wasm_printf',
@@ -87,6 +93,8 @@ $common = @(
     "-I$xmp\include",
     "-I$xmp\src",
     "-I$v2",
+    "-I$gme",
+    "-I$gme\gme",
     '-Wno-incompatible-pointer-types',
     '-Wl,--gc-sections',
     '-Wl,--strip-all',
@@ -103,7 +111,8 @@ $engines = @(
     @{ Name = 'hively'; Defines = @('-DRP_ENGINE_HIVELY=1'); Sources = $hivelySources; Hively = $true },
     @{ Name = 'xmp'; Defines = @('-DRP_ENGINE_XMP=1', '-DLIBXMP_NO_DEPACKERS', '-DLIBXMP_NO_PROWIZARD') + $xmpMacros; Sources = $xmpSources + @($wasmStubs, $stub); Hively = $false },
     @{ Name = 'v2'; Defines = @('-DRP_ENGINE_V2=1', '-DV2_RONAN=1') + $libcMacros; Sources = $v2Sources + @($wasmStubs, $stub); Hively = $false },
-    @{ Name = 'all'; Defines = @('-DRP_ENGINE_ALL=1', '-DLIBXMP_NO_DEPACKERS', '-DLIBXMP_NO_PROWIZARD', '-DV2_RONAN=1') + $xmpMacros; Sources = $preTrackerSources + $hivelySources + $xmpSources + $v2Sources + @($wasmStubs); Hively = $true }
+    @{ Name = 'gme'; Defines = @('-DRP_ENGINE_GME=1', '-DBLARGG_LITTLE_ENDIAN=1', '-DVGM_YM2612_NUKED') + $libcMacros; Sources = $gmeSources + @($wasmStubs, $stub); Hively = $false },
+    @{ Name = 'all'; Defines = @('-DRP_ENGINE_ALL=1', '-DLIBXMP_NO_DEPACKERS', '-DLIBXMP_NO_PROWIZARD', '-DV2_RONAN=1', '-DBLARGG_LITTLE_ENDIAN=1', '-DVGM_YM2612_NUKED') + $xmpMacros; Sources = $preTrackerSources + $hivelySources + $xmpSources + $v2Sources + $gmeSources + @($wasmStubs); Hively = $true }
 )
 
 Write-Host "zig  : $Zig"

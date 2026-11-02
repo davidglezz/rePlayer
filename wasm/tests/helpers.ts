@@ -79,6 +79,19 @@ export function makeMod(): Buffer {
     return Buffer.concat([header, pattern, Buffer.from([0x40, 0xc0])]);
 }
 
+/** Generates a minimal VGM (YM2612 clock, no commands) for GME. */
+export function makeVgm(): Buffer {
+    const data = Buffer.alloc(0x41);
+    data.write('Vgm ', 0, 'ascii');
+    data.writeUInt32LE(data.length - 4, 0x04); // EOF offset
+    data.writeUInt32LE(0x150, 0x08); // version 1.50
+    data.writeUInt32LE(48000, 0x18); // total samples
+    data.writeUInt32LE(7670453, 0x2c); // YM2612 clock
+    data.writeUInt32LE(0x0c, 0x34); // data offset, relative to 0x34
+    data.writeUInt8(0x66, 0x40); // end of sound data
+    return data;
+}
+
 export function readWasm(relativePath: string): Buffer {
     return fs.readFileSync(path.join(WEB, relativePath));
 }

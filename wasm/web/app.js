@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const NO_CACHE = window.REPLAYER_NO_CACHE === true
     || new URLSearchParams(location.search).has('nocache')
     || new URLSearchParams(location.search).get('cache') === '0';
-const FORMATS = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively', 6: 'XMP', 7: 'V2' };
+const FORMATS = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively', 6: 'XMP', 7: 'V2', 8: 'GME' };
 // libxmp and v2redux pull a few WASI symbols from wasi-libc, but the code
 // paths that use them (files, environment, clock) never run here. Provide
 // stubs so the modules instantiate in the browser and in the AudioWorklet.
@@ -32,6 +32,11 @@ const ENGINES = [
         path: 'engines/xmp.wasm',
     },
     { name: 'v2', exts: ['v2m'], path: 'engines/v2.wasm' },
+    {
+        name: 'gme',
+        exts: ['ay', 'gbs', 'gym', 'hes', 'kss', 'nsf', 'nsfe', 'sap', 'spc', 'vgm', 'vgz'],
+        path: 'engines/gme.wasm',
+    },
 ];
 const ALL_ENGINE = { name: 'all', exts: [], path: 'core.wasm' };
 const engineCache = new Map();

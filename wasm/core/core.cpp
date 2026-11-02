@@ -13,6 +13,7 @@
 #define RP_ENGINE_HIVELY 1
 #define RP_ENGINE_XMP 1
 #define RP_ENGINE_V2 1
+#define RP_ENGINE_GME 1
 #endif
 #ifndef RP_ENGINE_WAV
 #define RP_ENGINE_WAV 0
@@ -34,6 +35,9 @@
 #endif
 #ifndef RP_ENGINE_V2
 #define RP_ENGINE_V2 0
+#endif
+#ifndef RP_ENGINE_GME
+#define RP_ENGINE_GME 0
 #endif
 
 #if RP_ENGINE_WAV
@@ -79,6 +83,10 @@ extern "C"
 #include "../../source/Replays/V2/v2redux/v2redux.h"
 #endif
 
+#if RP_ENGINE_GME
+#include "../../source/Replays/GME/gme/gme/gme.h"
+#endif
+
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -94,7 +102,8 @@ namespace
         kPreTracker,
         kHively,
         kXmp,
-        kV2
+        kV2,
+        kGme
     };
 
     struct RpContext
@@ -135,6 +144,9 @@ namespace
 #endif
 #if RP_ENGINE_V2
         v2redux::Player* v2Player = nullptr;
+#endif
+#if RP_ENGINE_GME
+        Music_Emu* gme = nullptr;
 #endif
 
         char title[64] = {};
@@ -194,6 +206,11 @@ namespace
 #if RP_ENGINE_V2
         delete ctx->v2Player;
         ctx->v2Player = nullptr;
+#endif
+#if RP_ENGINE_GME
+        if (ctx->gme)
+            gme_delete(ctx->gme);
+        ctx->gme = nullptr;
 #endif
 
         ctx->format = Format::kNone;
@@ -440,6 +457,46 @@ extern "C"
         }
 #endif
 
+#if RP_ENGINE_GME
+        // Game Music Emu: NSF/NSFE/GBS/VGM/VGZ/SPC/HES/KSS/AY/SAP/GYM.
+        if (size >= 4)
+        {
+            Music_Emu* emu = nullptr;
+            if (gme_open_data(ctx->data, static_cast<long>(size), &emu, 48000) == nullptr && emu)
+            {
+                gme_set_stereo_depth(emu, 1.0);
+                gme_ignore_silence(emu, 1);
+                int trackCount = gme_track_count(emu);
+                if (trackCount > 0 && gme_start_track(emu, 0) == nullptr)
+                {
+                    int lengthMs = 150000;
+                    gme_info_t* info = nullptr;
+                    if (gme_track_info(emu, &info, 0) == nullptr && info)
+                    {
+                        if (info->play_length > 0)
+                            lengthMs = info->play_length;
+                        if (info->song[0])
+                            CopyFixedString(ctx->title, sizeof(ctx->title), info->song, 256);
+                        else if (info->game[0])
+                            CopyFixedString(ctx->title, sizeof(ctx->title), info->game, 256);
+                        if (info->author[0])
+                            CopyFixedString(ctx->artist, sizeof(ctx->artist), info->author, 256);
+                        gme_free_info(info);
+                    }
+                    ctx->gme = emu;
+                    ctx->format = Format::kGme;
+                    ctx->sampleRate = 48000;
+                    ctx->channels = 2;
+                    ctx->totalFrames = static_cast<uint64_t>(lengthMs) * 48000 / 1000;
+                    ctx->subsongCount = trackCount;
+                    ctx->subsong = 0;
+                    return 1;
+                }
+                gme_delete(emu);
+            }
+        }
+#endif
+
         free(ctx->data);
         ctx->data = nullptr;
         ctx->dataSize = 0;
@@ -561,6 +618,34 @@ extern "C"
         }
 #endif
 
+#if RP_ENGINE_GME
+        if (ctx->format == Format::kGme)
+        {
+            if (index < 0 || index >= ctx->subsongCount)
+                return 0;
+            if (gme_start_track(ctx->gme, index) != nullptr)
+                return 0;
+            ctx->subsong = index;
+            ctx->position = 0;
+            int lengthMs = 150000;
+            gme_info_t* info = nullptr;
+            if (gme_track_info(ctx->gme, &info, index) == nullptr && info)
+            {
+                if (info->play_length > 0)
+                    lengthMs = info->play_length;
+                if (info->song[0])
+                    CopyFixedString(ctx->title, sizeof(ctx->title), info->song, 256);
+                else if (info->game[0])
+                    CopyFixedString(ctx->title, sizeof(ctx->title), info->game, 256);
+                if (info->author[0])
+                    CopyFixedString(ctx->artist, sizeof(ctx->artist), info->author, 256);
+                gme_free_info(info);
+            }
+            ctx->totalFrames = static_cast<uint64_t>(lengthMs) * 48000 / 1000;
+            return 1;
+        }
+#endif
+
         return 0;
     }
 
@@ -659,6 +744,16 @@ extern "C"
         {
             uint32_t ms = static_cast<uint32_t>(frame * 1000 / 44100);
             ctx->v2Player->play(ms);
+            ctx->position = frame < ctx->totalFrames ? frame : ctx->totalFrames;
+            return 1;
+        }
+#endif
+#if RP_ENGINE_GME
+        case Format::kGme:
+        {
+            uint32_t ms = static_cast<uint32_t>(frame * 1000 / 48000);
+            if (gme_seek(ctx->gme, static_cast<int>(ms)) != nullptr)
+                return 0;
             ctx->position = frame < ctx->totalFrames ? frame : ctx->totalFrames;
             return 1;
         }
@@ -798,6 +893,48 @@ extern "C"
             uint32_t count = remaining < frames ? static_cast<uint32_t>(remaining) : frames;
             if (count > 0)
                 ctx->v2Player->render(out, count);
+            for (uint32_t i = count; i < frames; i++)
+            {
+                out[i * 2 + 0] = 0.0f;
+                out[i * 2 + 1] = 0.0f;
+            }
+            ctx->position += count;
+            return count;
+        }
+#endif
+#if RP_ENGINE_GME
+        case Format::kGme:
+        {
+            uint64_t remaining = ctx->totalFrames > ctx->position ? ctx->totalFrames - ctx->position : 0;
+            uint32_t count = remaining < frames ? static_cast<uint32_t>(remaining) : frames;
+            if (count > 0 && gme_track_ended(ctx->gme) == 0)
+            {
+                auto* pcm = reinterpret_cast<int16_t*>(ctx->scratch);
+                if (gme_play(ctx->gme, static_cast<int>(count) * 2, pcm) == nullptr)
+                {
+                    for (uint32_t i = 0; i < count; i++)
+                    {
+                        out[i * 2 + 0] = pcm[i * 2 + 0] / 32768.0f;
+                        out[i * 2 + 1] = pcm[i * 2 + 1] / 32768.0f;
+                    }
+                }
+                else
+                {
+                    for (uint32_t i = 0; i < count; i++)
+                    {
+                        out[i * 2 + 0] = 0.0f;
+                        out[i * 2 + 1] = 0.0f;
+                    }
+                }
+            }
+            else
+            {
+                for (uint32_t i = 0; i < count; i++)
+                {
+                    out[i * 2 + 0] = 0.0f;
+                    out[i * 2 + 1] = 0.0f;
+                }
+            }
             for (uint32_t i = count; i < frames; i++)
             {
                 out[i * 2 + 0] = 0.0f;

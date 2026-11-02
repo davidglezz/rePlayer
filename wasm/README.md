@@ -8,7 +8,7 @@ app Win32, DirectX, ImGui, las DLLs de los 62 motores ni la base de datos.
 
 ```
 wasm/
-  core/core.cpp     # WAV/FLAC/MP3/PreTracker/Hively/XMP/V2 + ABI C
+  core/core.cpp     # WAV/FLAC/MP3/PreTracker/Hively/XMP/V2/GME + ABI C
   build.ps1         # compila los módulos wasm con zig (clang + wasm-ld)
   src/app.ts        # carga de archivos, AudioContext, controles, playlist
   src/tags.ts       # WAV INFO, FLAC Vorbis comments, ID3v2/ID3v1
@@ -18,8 +18,8 @@ wasm/
   src/server.ts     # servidor estático local (Node, ESM)
   tests/*.test.ts   # tests de Vitest (core, motores, processor, tags, export)
   web/*.js          # salida compilada de src/ (se versiona)
-  web/engines/*.wasm# módulos por motor (wav, flac, mp3, pretracker, hively, xmp, v2)
-  web/core.wasm     # módulo "all" de fallback (~695 KB)
+  web/engines/*.wasm# módulos por motor (wav, flac, mp3, pretracker, hively, xmp, v2, gme)
+  web/core.wasm     # módulo "all" de fallback (~927 KB)
   tsconfig.json     # build de la app
   tsconfig.sw.json  # build del service worker (lib WebWorker)
   tsconfig.test.json# typecheck de src + tests
@@ -29,8 +29,8 @@ wasm/
 
 - **WAV** (`dr_wav`), **FLAC** (`dr_flac`), **MP3** (`dr_mp3`),
   **PreTracker** (`source/Replays/PreTracker/pretracker`, MIT), **Hively**
-  (`source/Replays/Hively/hvl`), **XMP** (libxmp) y **V2** (v2redux). Todos
-  desde memoria, sin sistema de ficheros.
+  (`source/Replays/Hively/hvl`), **XMP** (libxmp), **V2** (v2redux) y **GME**
+  (Game Music Emu). Todos desde memoria, sin sistema de ficheros.
 - PreTracker es el primer **motor real de rePlayer** integrado en el core:
   usa su API C (`pre_song_create(data, size)`, `pre_song_decode`), se configura
   a 48 kHz y se renderiza a estéreo. `pre_song_get_length()` avanza el player,
@@ -49,17 +49,20 @@ wasm/
 - **V2** integra v2redux (Farbrausch ViruZ II) para `.v2m`, con el sintetizador
   portátil a 44,1 kHz. El AudioWorklet lo remuestrea si el `AudioContext` corre
   a otra frecuencia.
+- **GME** integra Game Music Emu para chiptunes de consola: NSF/NSFE, GBS, VGM,
+  SPC, HES, KSS, AY, SAP y GYM. Cada track del archivo es un subsong. VGZ
+  necesitaría zlib, así que de momento solo se cargan VGM sin comprimir.
 - ABI C mínima: `rp_create`, `rp_load`, `rp_sample_rate`, `rp_channels`,
   `rp_frames`, `rp_position`, `rp_format`, `rp_title`, `rp_artist`,
   `rp_subsong_count`, `rp_subsong`, `rp_set_subsong`, `rp_seek`, `rp_render`,
   `rp_destroy`, y `malloc`/`free` para pasar los bytes del archivo.
   `rp_format` devuelve `1` WAV, `2` FLAC, `3` MP3, `4` PreTracker, `5` Hively,
-  `6` XMP y `7` V2.
-- Los módulos PreTracker y XMP con varios subsongs muestran un selector en la
-  UI; el cambio reinicia el motor y recalcula la duración. Los demás formatos
+  `6` XMP, `7` V2 y `8` GME.
+- Los módulos PreTracker, XMP y GME con varios subsongs muestran un selector en
+  la UI; el cambio reinicia el motor y recalcula la duración. Los demás formatos
   declaran un único subsong.
 - Los módulos son autocontenidos (`wasm32-wasi` en modo reactor): no usan
-  hilos ni el filesystem. libxmp y v2redux referencian algunas funciones de
+  hilos ni el filesystem. libxmp, v2redux y GME referencian algunas funciones de
   WASI que nunca se ejecutan; el core las sustituye por stubs (`wasm_stubs.c`)
   para que la instanciación no dependa del entorno. `WebAssembly.Module` se
   envía al `AudioWorklet`, que instancia el core en el hilo de audio y va
@@ -78,10 +81,11 @@ La UI elige el motor por la extensión del archivo y carga **solo** ese `.wasm`:
 | `engines/hively.wasm` | ~38 KB | `.hvl`, `.ahx`, `.thx` |
 | `engines/xmp.wasm` | ~444 KB | `.mod`, `.xm`, `.it`, `.s3m`, `.med`, `.dbm`, `.mtm`, `.669`, `.stm`, `.stx`, `.ult`, `.umx`, `.okt`, `.ptm`, `.sfx`, `.gdm`, `.imf`, `.ims`, `.mdl`, `.amf`, `.far`, `.rtm`, `.psm`, `.j2b`… |
 | `engines/v2.wasm` | ~83 KB | `.v2m` |
-| `core.wasm` (all) | ~695 KB | fallback |
+| `engines/gme.wasm` | ~273 KB | `.nsf`, `.nsfe`, `.gbs`, `.vgm`, `.spc`, `.hes`, `.kss`, `.ay`, `.sap`, `.gym` |
+| `core.wasm` (all) | ~927 KB | fallback |
 
 Si la extensión no se reconoce, o el módulo específico rechaza el archivo, se
-carga `core.wasm` (que incluye los 7 decoders) y se reintenta. Los módulos se
+carga `core.wasm` (que incluye los 8 decoders) y se reintenta. Los módulos se
 cachean en memoria (`engineCache`), así que cambiar entre dos `.wav` no vuelve a
 descargar nada.
 
@@ -119,8 +123,8 @@ npm run check      # typecheck + build + tests
 ```
 
 Los tests de PreTracker/Hively/V2 necesitan módulos de ejemplo que no están en
-el repo. Se activan apuntando las variables de entorno a un archivo local (el
-test de XMP genera un MOD en memoria y no necesita nada):
+el repo. Se activan apuntando las variables de entorno a un archivo local (los
+tests de XMP y GME generan un MOD y un VGM en memoria):
 
 ```powershell
 $env:REPLAYER_PRT = "C:\ruta\a\modulo.prt"
@@ -195,10 +199,11 @@ normal, `npm run serve` mantiene la PWA offline.
 
 ## Limitaciones de este prototipo
 
-- 7 motores (WAV/FLAC/MP3/PreTracker/Hively/XMP/V2). XMP cubre decenas de
-  formatos de tracker; el resto de los 62 necesitaría una ABI C por motor o un
-  proxy que envuelva el `ReplayPlugin` actual.
-- `core.wasm` incluye los 7 decoders y se usa como fallback; para producción se
+- 8 motores (WAV/FLAC/MP3/PreTracker/Hively/XMP/V2/GME). XMP cubre decenas de
+  formatos de tracker y GME los chiptunes de consola; el resto de los 62
+  necesitaría una ABI C por motor o un proxy que envuelva el `ReplayPlugin`
+  actual.
+- `core.wasm` incluye los 8 decoders y se usa como fallback; para producción se
   podría eliminar y dejar solo los módulos por motor.
 - La playlist vive en memoria: al recargar la página se pierde (los `File` del
   navegador no se pueden persistir sin volver a pedir permiso).
