@@ -10,18 +10,18 @@ app Win32, DirectX, ImGui, las DLLs de los 62 motores ni la base de datos.
 wasm/
   core/core.cpp     # WAV/FLAC/MP3/PreTracker/Hively + ABI C
   build.ps1         # compila los módulos wasm con zig (clang + wasm-ld)
-  web/index.html    # UI
-  web/app.js        # carga de archivos, AudioContext, controles
-  web/tags.js       # WAV INFO, FLAC Vorbis comments, ID3v2/ID3v1
-  web/processor.js  # AudioWorklet: renderiza PCM desde el wasm
+  src/app.ts        # carga de archivos, AudioContext, controles, playlist
+  src/tags.ts       # WAV INFO, FLAC Vorbis comments, ID3v2/ID3v1
+  src/processor.ts  # AudioWorklet: renderiza PCM desde el wasm
+  src/sw.ts         # service worker (PWA / offline)
+  src/bootstrap.ts  # loader de app.js con bypass de cache en desarrollo
+  src/server.ts     # servidor estático local (Node, ESM)
+  tests/*.test.ts   # tests de Vitest (core, motores, processor, tags, export)
+  web/*.js          # salida compilada de src/ (se versiona)
   web/engines/*.wasm# módulos por motor (wav, flac, mp3, pretracker, hively)
   web/core.wasm     # módulo "all" de fallback (203 KB, sin imports)
-  server.mjs        # servidor estático local
-  test-core.cjs     # test de humo del core en Node
-  test-engines.cjs  # test de los módulos por motor
-  test-processor.cjs# test del AudioWorklet (directo + resampling)
-  test-tags.mjs     # test del lector de metadatos
-  test-export.cjs   # test de exportación a WAV
+  tsconfig.json     # build de la app
+  tsconfig.sw.json  # build del service worker (lib WebWorker)
 ```
 
 ## Formatos y ABI
@@ -82,32 +82,31 @@ clang y wasm-ld, no hace falta Emscripten ni Python):
 Si `zig` está en el `PATH`, basta con `.\wasm\build.ps1`. Para compilar solo
 algunos módulos: `.\wasm\build.ps1 -Only wav,hively,all`.
 
-Test rápido del core (genera un WAV en memoria, sin navegador):
+El código web es **TypeScript + ESM**. La primera vez instala las herramientas
+de desarrollo y compila `src/*.ts` a `web/*.js`:
 
 ```powershell
-node .\wasm\test-core.cjs
-# y, opcionalmente, un .prt/.pt y un .hvl/.ahx/.thx:
-node .\wasm\test-core.cjs C:\ruta\a\modulo.prt C:\ruta\a\modulo.hvl
-
-# AudioWorklet: render directo y resampling 44.1k -> 48k
-node .\wasm\test-processor.cjs
-
-# módulos por motor (y aislamiento de formatos)
-node .\wasm\test-engines.cjs C:\ruta\a\modulo.prt C:\ruta\a\modulo.hvl
-
-# metadatos y exportación a WAV
-node .\wasm\test-tags.mjs
-node .\wasm\test-export.cjs
+cd .\wasm
+npm install
+npm run build      # tsc: app + service worker
 ```
+
+`web/*.js` se versiona, así que el demo funciona sin compilar. Solo hay que
+ejecutar `npm run build` si tocas `src/`.
 
 ## Ejecutar
 
 ```powershell
-node .\wasm\server.mjs
+cd .\wasm
+npm run serve
+# desarrollo sin service worker/cache:
+npm run serve:nocache
 ```
 
-Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
-`127.0.0.1` es contexto seguro, así que `AudioWorklet` funciona sin HTTPS.
+También se puede arrancar directamente con `tsx src/server.ts` o
+`tsx src/server.ts --no-cache`. Abre **http://127.0.0.1:8787/**, arrastra uno o
+varios archivos y dale a play. `127.0.0.1` es contexto seguro, así que
+`AudioWorklet` funciona sin HTTPS.
 
 ## Reproductor
 
@@ -135,14 +134,14 @@ Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
 - `sw.js` cachea la shell y **todos** los módulos wasm en la primera visita; a
   partir de ahí funciona sin red (sigue haciendo falta `localhost` o HTTPS para
   el `AudioWorklet` y el service worker).
-- Si cambias la UI o los `.wasm`, sube `CACHE` en `sw.js` para invalidar.
+- Si cambias la UI o los `.wasm`, sube `CACHE` en `src/sw.ts` y recompila.
 
 ## Desarrollo sin cache
 
 Para que el service worker no sirva versiones antiguas mientras trabajas:
 
 ```powershell
-node .\wasm\server.mjs --no-cache
+npm run serve:nocache
 # o abre http://127.0.0.1:8787/?nocache=1
 # también vale ?cache=0 o la variable NO_CACHE=1
 ```
@@ -157,7 +156,7 @@ El flag:
 El servidor `--no-cache` además sirve un `sw.js` que se autodesregistra. Si ya
 tenías el service worker antiguo, la forma más fiable es abrir con
 `?nocache=1` (la URL con query no coincide con la clave cacheada). En modo
-normal, `node .\wasm\server.mjs` mantiene la PWA offline.
+normal, `npm run serve` mantiene la PWA offline.
 
 ## Limitaciones de este prototipo
 

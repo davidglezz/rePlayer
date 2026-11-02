@@ -1,10 +1,13 @@
+"use strict";
+/// <reference lib="webworker" />
 // Offline cache for the web player. Bump CACHE when the shell or the wasm
 // modules change.
-const CACHE = 'replayer-wasm-v2';
+const CACHE = 'replayer-wasm-v3';
 const ASSETS = [
     './',
     './index.html',
     './style.css',
+    './bootstrap.js',
     './app.js',
     './tags.js',
     './processor.js',
@@ -19,42 +22,42 @@ const ASSETS = [
     './engines/pretracker.wasm',
     './engines/hively.wasm',
 ];
-
-self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(CACHE)
-            .then((cache) => cache.addAll(ASSETS))
-            .then(() => self.skipWaiting())
-    );
+const worker = self;
+worker.addEventListener('install', (event) => {
+    event.waitUntil(caches.open(CACHE)
+        .then((cache) => cache.addAll(ASSETS))
+        .then(() => worker.skipWaiting()));
 });
-
-self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        caches.keys()
-            .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
-            .then(() => self.clients.claim())
-    );
+worker.addEventListener('activate', (event) => {
+    event.waitUntil(caches.keys()
+        .then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key))))
+        .then(() => worker.clients.claim()));
 });
-
-self.addEventListener('fetch', (event) => {
+worker.addEventListener('fetch', (event) => {
     if (event.request.method !== 'GET')
         return;
-
     const url = new URL(event.request.url);
-    if (url.origin !== self.location.origin)
+    if (url.origin !== worker.location.origin)
         return;
-
-    event.respondWith(
-        caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
-            if (response && response.ok) {
+    event.respondWith((async () => {
+        const cached = await caches.match(event.request);
+        if (cached)
+            return cached;
+        try {
+            const response = await fetch(event.request);
+            if (response.ok) {
                 const copy = response.clone();
-                caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+                void caches.open(CACHE).then((cache) => cache.put(event.request, copy));
             }
             return response;
-        }).catch(() => {
-            if (event.request.mode === 'navigate')
-                return caches.match('./index.html');
-            throw new Error('offline');
-        }))
-    );
+        }
+        catch (error) {
+            if (event.request.mode === 'navigate') {
+                const fallback = await caches.match('./index.html');
+                if (fallback)
+                    return fallback;
+            }
+            return new Response('Offline', { status: 503, statusText: 'Offline' });
+        }
+    })());
 });

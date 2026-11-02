@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const port = Number(process.env.PORT || 8787);
 const noCache = process.argv.includes('--no-cache') || process.env.NO_CACHE === '1';
 
@@ -14,7 +14,7 @@ const UNREGISTER_SW = [
     '',
 ].join('\n');
 
-const contentTypes = {
+const contentTypes: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
@@ -43,6 +43,7 @@ const server = http.createServer((request, response) => {
             response.end('Not found');
             return;
         }
+
         if (noCache && relative === 'sw.js') {
             response.writeHead(200, {
                 'Content-Type': 'text/javascript; charset=utf-8',
@@ -52,7 +53,7 @@ const server = http.createServer((request, response) => {
             return;
         }
 
-        let output = data;
+        let output: Buffer = data;
         if (noCache && relative === 'index.html') {
             const html = data.toString('utf8').replace('<head>', '<head>\n    <script>window.REPLAYER_NO_CACHE = true;</script>');
             output = Buffer.from(html, 'utf8');

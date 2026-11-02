@@ -1,13 +1,9 @@
 import { readTags } from './tags.js';
-
 const $ = (id) => document.getElementById(id);
-
 const NO_CACHE = window.REPLAYER_NO_CACHE === true
     || new URLSearchParams(location.search).has('nocache')
     || new URLSearchParams(location.search).get('cache') === '0';
-
 const FORMATS = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively' };
-
 const ENGINES = [
     { name: 'wav', exts: ['wav'], path: 'engines/wav.wasm' },
     { name: 'flac', exts: ['flac'], path: 'engines/flac.wasm' },
@@ -15,71 +11,10 @@ const ENGINES = [
     { name: 'pretracker', exts: ['prt', 'pt'], path: 'engines/pretracker.wasm' },
     { name: 'hively', exts: ['hvl', 'ahx', 'thx'], path: 'engines/hively.wasm' },
 ];
-const ALL_ENGINE = { name: 'all', path: 'core.wasm' };
+const ALL_ENGINE = { name: 'all', exts: [], path: 'core.wasm' };
 const engineCache = new Map();
 const SETTINGS_KEY = 'replayer-wasm-settings';
 let lastPositionState = 0;
-
-function loadSettings() {
-    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { return {}; }
-}
-
-function saveSettings() {
-    try {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-            volume: state.volume,
-            repeat: state.repeatMode,
-            shuffle: state.shuffle,
-        }));
-    } catch (e) { /* storage disabled */ }
-}
-
-function updateMediaSession() {
-    if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined')
-        return;
-    const title = state.engineTitle || state.title || 'rePlayer wasm';
-    const artist = state.engineArtist || 'rePlayer wasm';
-    navigator.mediaSession.metadata = new MediaMetadata({
-        title,
-        artist,
-        album: FORMATS[state.format] || 'rePlayer wasm',
-        artwork: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' }],
-    });
-}
-
-function updatePositionState() {
-    if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function')
-        return;
-    if (!state.duration)
-        return;
-    const now = Date.now();
-    if (now - lastPositionState < 500)
-        return;
-    lastPositionState = now;
-    const position = Math.min(Math.max(state.position / state.rate, 0), state.duration);
-    try {
-        navigator.mediaSession.setPositionState({ duration: state.duration, playbackRate: 1, position });
-    } catch (e) { /* stale duration */ }
-}
-
-function setupMediaSession() {
-    if (!('mediaSession' in navigator))
-        return;
-    const handlers = {
-        play: () => { if (!state.playing) togglePlay(); },
-        pause: () => { if (state.playing) togglePlay(); },
-        stop: () => stopPlayback(),
-        previoustrack: () => previous(),
-        nexttrack: () => next(),
-        seekbackward: (details) => seekBy(-(details.seekOffset || 10)),
-        seekforward: (details) => seekBy(details.seekOffset || 10),
-        seekto: (details) => { if (typeof details.seekTime === 'number') seekTo(details.seekTime * state.rate); },
-    };
-    for (const [action, handler] of Object.entries(handlers)) {
-        try { navigator.mediaSession.setActionHandler(action, handler); } catch (e) { /* unsupported action */ }
-    }
-}
-
 const state = {
     module: null,
     wasmBytes: null,
@@ -113,15 +48,82 @@ const state = {
     loadToken: 0,
     exporting: false,
 };
-
+function loadSettings() {
+    try {
+        return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    }
+    catch (e) {
+        return {};
+    }
+}
+function saveSettings() {
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+            volume: state.volume,
+            repeat: state.repeatMode,
+            shuffle: state.shuffle,
+        }));
+    }
+    catch (e) { /* storage disabled */ }
+}
+function updateMediaSession() {
+    if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined')
+        return;
+    const title = state.engineTitle || state.title || 'rePlayer wasm';
+    const artist = state.engineArtist || 'rePlayer wasm';
+    navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist,
+        album: FORMATS[state.format] || 'rePlayer wasm',
+        artwork: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' }],
+    });
+}
+function updatePositionState() {
+    if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function')
+        return;
+    if (!state.duration)
+        return;
+    const now = Date.now();
+    if (now - lastPositionState < 500)
+        return;
+    lastPositionState = now;
+    const position = Math.min(Math.max(state.position / state.rate, 0), state.duration);
+    try {
+        navigator.mediaSession.setPositionState({ duration: state.duration, playbackRate: 1, position });
+    }
+    catch (e) { /* stale duration */ }
+}
+function setupMediaSession() {
+    if (!('mediaSession' in navigator))
+        return;
+    const handlers = {
+        play: () => { if (!state.playing)
+            void togglePlay(); },
+        pause: () => { if (state.playing)
+            void togglePlay(); },
+        stop: () => stopPlayback(),
+        previoustrack: () => previous(),
+        nexttrack: () => next(),
+        seekbackward: (details) => seekBy(-(details.seekOffset || 10)),
+        seekforward: (details) => seekBy(details.seekOffset || 10),
+        seekto: (details) => { if (typeof details.seekTime === 'number')
+            seekTo(details.seekTime * state.rate); },
+    };
+    for (const action of Object.keys(handlers)) {
+        try {
+            navigator.mediaSession.setActionHandler(action, handlers[action] ?? null);
+        }
+        catch (e) { /* unsupported action */ }
+    }
+}
 function engineForFile(file) {
     const extension = (file.name.split('.').pop() || '').toLowerCase();
     return ENGINES.find((engine) => engine.exts.includes(extension)) || ALL_ENGINE;
 }
-
 async function loadEngine(engine) {
-    if (engineCache.has(engine.path))
-        return engineCache.get(engine.path);
+    const cached = engineCache.get(engine.path);
+    if (cached)
+        return cached;
     const url = NO_CACHE ? `${engine.path}?nocache=${Date.now()}` : engine.path;
     const response = await fetch(url, { cache: 'no-store' });
     if (!response.ok)
@@ -132,14 +134,12 @@ async function loadEngine(engine) {
     engineCache.set(engine.path, record);
     return record;
 }
-
 async function readMetadata(module, buffer) {
-    const { instance } = await WebAssembly.instantiate(module, {});
+    const instance = await WebAssembly.instantiate(module, {});
     const exports = instance.exports;
     const context = exports.rp_create();
     if (!context)
         return null;
-
     const pointer = exports.malloc(buffer.byteLength);
     if (!pointer) {
         exports.rp_destroy(context);
@@ -152,7 +152,6 @@ async function readMetadata(module, buffer) {
         exports.rp_destroy(context);
         return null;
     }
-
     const info = {
         format: exports.rp_format(context),
         rate: exports.rp_sample_rate(context),
@@ -166,7 +165,6 @@ async function readMetadata(module, buffer) {
     exports.rp_destroy(context);
     return info;
 }
-
 function readCString(exports, pointer) {
     if (!pointer)
         return '';
@@ -176,20 +174,17 @@ function readCString(exports, pointer) {
         end++;
     return new TextDecoder().decode(memory.subarray(pointer, end));
 }
-
 function fmtTime(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0)
         seconds = 0;
     const total = Math.floor(seconds);
     return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
-
 function setStatus(text, isError = false) {
     const el = $('status');
     el.textContent = text;
     el.classList.toggle('error', !!isError);
 }
-
 function updateTransport() {
     $('play').textContent = state.playing ? '\u23F8' : '\u25B6';
     $('play').disabled = !state.node;
@@ -201,14 +196,12 @@ function updateTransport() {
     if ('mediaSession' in navigator)
         navigator.mediaSession.playbackState = state.playing ? 'playing' : (state.node ? 'paused' : 'none');
 }
-
 function updatePosition() {
     if (!state.seeking && state.frames > 0)
         $('seek').value = String(Math.round((state.position / state.frames) * 1000));
     $('time').textContent = fmtTime(state.position / state.rate);
     updatePositionState();
 }
-
 function updateSubsongUI() {
     const row = $('subsongRow');
     const select = $('subsong');
@@ -224,11 +217,11 @@ function updateSubsongUI() {
         }
         select.value = String(state.subsong);
         row.hidden = false;
-    } else {
+    }
+    else {
         row.hidden = true;
     }
 }
-
 function updateTrackInfo() {
     const format = FORMATS[state.format] || 'audio';
     const title = state.engineTitle || state.title || (state.file && state.file.name) || '—';
@@ -241,7 +234,6 @@ function updateTrackInfo() {
     updateSubsongUI();
     updateMediaSession();
 }
-
 function renderPlaylist() {
     const list = $('playlist');
     list.innerHTML = '';
@@ -253,33 +245,28 @@ function renderPlaylist() {
         list.appendChild(empty);
         return;
     }
-
     state.queue.forEach((item, index) => {
         const row = document.createElement('li');
         if (index === state.queueIndex)
             row.className = 'current';
-
         const play = document.createElement('button');
         play.className = 'track';
         play.textContent = item.name;
         play.title = item.name;
-        play.onclick = () => playIndex(index);
+        play.onclick = () => { void playIndex(index); };
         row.appendChild(play);
-
         const remove = document.createElement('button');
         remove.className = 'remove';
         remove.textContent = '\u00D7';
         remove.title = 'Quitar de la playlist';
         remove.onclick = (event) => {
             event.stopPropagation();
-            removeFromQueue(index);
+            void removeFromQueue(index);
         };
         row.appendChild(remove);
-
         list.appendChild(row);
     });
 }
-
 function updateModeButtons() {
     $('shuffle').classList.toggle('active', state.shuffle);
     $('repeat').classList.toggle('active', state.repeatMode !== 'off');
@@ -287,26 +274,21 @@ function updateModeButtons() {
     $('repeat').title = state.repeatMode === 'off' ? 'Repetir: off' : (state.repeatMode === 'one' ? 'Repetir: una' : 'Repetir: todas');
     $('shuffle').title = state.shuffle ? 'Aleatorio: on' : 'Aleatorio: off';
 }
-
 function addFiles(fileList) {
     const files = Array.from(fileList || []).filter(Boolean);
     if (!files.length)
         return;
-
     for (const file of files)
         state.queue.push({ id: state.nextQueueId++, file, name: file.name });
-
     $('drop').hidden = true;
     $('player').hidden = false;
     renderPlaylist();
     updateTransport();
-
     if (state.queueIndex < 0)
-        playIndex(0, true);
+        void playIndex(0, true);
     else
         setStatus(`${files.length} archivo(s) añadido(s)`);
 }
-
 async function playIndex(index, autoplay = true) {
     if (index < 0 || index >= state.queue.length || state.loading)
         return;
@@ -314,14 +296,11 @@ async function playIndex(index, autoplay = true) {
     renderPlaylist();
     await loadFile(state.queue[index].file, autoplay);
 }
-
 async function removeFromQueue(index) {
     if (index < 0 || index >= state.queue.length)
         return;
-
     const wasCurrent = index === state.queueIndex;
     state.queue.splice(index, 1);
-
     if (wasCurrent) {
         state.loadToken++;
         state.loading = false;
@@ -331,27 +310,26 @@ async function removeFromQueue(index) {
         state.playing = false;
         if (state.queue.length) {
             const nextIndex = Math.min(index, state.queue.length - 1);
-            playIndex(nextIndex, true);
-        } else {
+            void playIndex(nextIndex, true);
+        }
+        else {
             state.file = null;
             $('player').hidden = true;
             $('drop').hidden = false;
             setStatus('playlist vacía');
         }
-    } else if (index < state.queueIndex) {
+    }
+    else if (index < state.queueIndex) {
         state.queueIndex--;
     }
-
     renderPlaylist();
     updateTransport();
 }
-
 async function clearQueue() {
     if (!state.queue.length)
         return;
     if (!confirm('¿Vaciar la playlist?'))
         return;
-
     state.queue = [];
     state.queueIndex = -1;
     state.file = null;
@@ -365,18 +343,19 @@ async function clearQueue() {
     updateTransport();
     setStatus('playlist vacía');
 }
-
 function next(autoplay = true) {
     if (!state.queue.length)
         return;
-
     let index;
     if (state.shuffle) {
         if (state.queue.length === 1)
             index = 0;
         else
-            do { index = Math.floor(Math.random() * state.queue.length); } while (index === state.queueIndex);
-    } else {
+            do {
+                index = Math.floor(Math.random() * state.queue.length);
+            } while (index === state.queueIndex);
+    }
+    else {
         index = state.queueIndex + 1;
         if (index >= state.queue.length) {
             if (state.repeatMode === 'all')
@@ -387,20 +366,21 @@ function next(autoplay = true) {
             }
         }
     }
-    playIndex(index, autoplay);
+    void playIndex(index, autoplay);
 }
-
 function previous(autoplay = true) {
     if (!state.queue.length)
         return;
-
     let index;
     if (state.shuffle) {
         if (state.queue.length === 1)
             index = 0;
         else
-            do { index = Math.floor(Math.random() * state.queue.length); } while (index === state.queueIndex);
-    } else {
+            do {
+                index = Math.floor(Math.random() * state.queue.length);
+            } while (index === state.queueIndex);
+    }
+    else {
         index = state.queueIndex - 1;
         if (index < 0) {
             if (state.repeatMode === 'all')
@@ -409,9 +389,8 @@ function previous(autoplay = true) {
                 index = 0;
         }
     }
-    playIndex(index, autoplay);
+    void playIndex(index, autoplay);
 }
-
 function onProcessorMessage(message) {
     switch (message.type) {
         case 'loaded':
@@ -432,18 +411,18 @@ function onProcessorMessage(message) {
                 setStatus(`${FORMATS[state.format] || 'audio'} listo`);
             break;
         case 'subsongChanged':
-            state.subsong = message.index;
-            state.frames = message.frames;
+            state.subsong = message.index ?? 0;
+            state.frames = message.frames ?? state.frames;
             state.duration = state.rate ? state.frames / state.rate : 0;
             state.position = 0;
             state.playing = false;
             updateTrackInfo();
             updatePosition();
             updateTransport();
-            setStatus(`subsong ${message.index + 1}`);
+            setStatus(`subsong ${(message.index ?? 0) + 1}`);
             break;
         case 'position':
-            if (!state.seeking) {
+            if (!state.seeking && typeof message.frame === 'number') {
                 state.position = message.frame;
                 updatePosition();
             }
@@ -460,7 +439,8 @@ function onProcessorMessage(message) {
                 state.position = 0;
                 updateTransport();
                 setStatus('repitiendo');
-            } else {
+            }
+            else {
                 next(true);
             }
             break;
@@ -469,46 +449,49 @@ function onProcessorMessage(message) {
             state.playing = false;
             state.loading = false;
             updateTransport();
-            setStatus(message.message, true);
+            setStatus(message.message || 'error', true);
             break;
         default:
             break;
     }
 }
-
 async function stopAudio() {
     if (state.node) {
-        try { state.node.port.postMessage({ type: 'stop' }); } catch (e) { /* ignore */ }
-        try { state.node.disconnect(); } catch (e) { /* ignore */ }
+        try {
+            state.node.port.postMessage({ type: 'stop' });
+        }
+        catch (e) { /* ignore */ }
+        try {
+            state.node.disconnect();
+        }
+        catch (e) { /* ignore */ }
         state.node = null;
     }
     if (state.audioContext) {
-        try { await state.audioContext.close(); } catch (e) { /* ignore */ }
+        try {
+            await state.audioContext.close();
+        }
+        catch (e) { /* ignore */ }
         state.audioContext = null;
     }
     state.playing = false;
 }
-
 async function startAudio(autoplay) {
     await stopAudio();
-
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const AudioContextClass = window.AudioContext;
     if (!AudioContextClass)
         throw new Error('Este navegador no soporta Web Audio');
-
     let context;
     try {
         context = new AudioContextClass({ sampleRate: state.rate });
-    } catch (e) {
+    }
+    catch (e) {
         context = new AudioContextClass();
     }
     state.audioContext = context;
-
     if (Math.abs(context.sampleRate - state.rate) > 1)
         setStatus(`resampling ${state.rate} → ${context.sampleRate} Hz`);
-
     await context.audioWorklet.addModule(NO_CACHE ? `processor.js?nocache=${Date.now()}` : 'processor.js');
-
     const node = new AudioWorkletNode(context, 'rp-player', {
         numberOfInputs: 0,
         numberOfOutputs: 1,
@@ -520,8 +503,10 @@ async function startAudio(autoplay) {
     };
     node.connect(context.destination);
     state.node = node;
-
     const buffer = state.bytes;
+    const module = state.module;
+    if (!buffer || !module)
+        throw new Error('no hay audio cargado');
     state.bytes = null;
     // WebAssembly.Module is structured-cloneable; send the bytes too as a
     // fallback for engines/contexts that reject the module clone.
@@ -529,42 +514,36 @@ async function startAudio(autoplay) {
     const transfer = wasmCopy ? [buffer, wasmCopy] : [buffer];
     node.port.postMessage({
         type: 'load',
-        module: state.module,
+        module,
         wasm: wasmCopy,
         data: buffer,
         autoplay: !!autoplay,
     }, transfer);
-
     if (context.state === 'suspended')
         await context.resume();
 }
-
 function writeAscii(view, offset, text) {
     for (let i = 0; i < text.length; i++)
         view.setUint8(offset + i, text.charCodeAt(i));
 }
-
 async function exportCurrent() {
     if (!state.file || !state.module || state.exporting)
         return;
-
     const file = state.file;
     const module = state.module;
     state.exporting = true;
     updateTransport();
     setStatus('exportando…');
-
     let context = 0;
     let exports = null;
     let outputPointer = 0;
     try {
         const buffer = await file.arrayBuffer();
-        const { instance } = await WebAssembly.instantiate(module, {});
+        const instance = await WebAssembly.instantiate(module, {});
         exports = instance.exports;
         context = exports.rp_create();
         if (!context)
             throw new Error('no se pudo crear el contexto del decodificador');
-
         const pointer = exports.malloc(buffer.byteLength);
         if (!pointer)
             throw new Error('sin memoria para cargar el archivo');
@@ -573,14 +552,12 @@ async function exportCurrent() {
         exports.free(pointer);
         if (!loaded)
             throw new Error('formato no soportado o archivo corrupto');
-
         const frames = Number(exports.rp_frames(context));
         const rate = exports.rp_sample_rate(context);
         const block = 4096;
         outputPointer = exports.malloc(block * 2 * 4);
         if (!outputPointer)
             throw new Error('sin memoria para renderizar');
-
         const pcmChunks = [];
         let done = 0;
         while (done < frames) {
@@ -599,7 +576,6 @@ async function exportCurrent() {
             if (frames > block * 32 && done % (block * 16) === 0)
                 setStatus(`exportando… ${Math.round((done / frames) * 100)}%`);
         }
-
         const dataSize = done * 4;
         const header = new ArrayBuffer(44);
         const view = new DataView(header);
@@ -616,8 +592,7 @@ async function exportCurrent() {
         view.setUint16(34, 16, true);
         writeAscii(view, 36, 'data');
         view.setUint32(40, dataSize, true);
-
-        const blob = new Blob([header].concat(pcmChunks), { type: 'audio/wav' });
+        const blob = new Blob([header, ...pcmChunks], { type: 'audio/wav' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -627,9 +602,11 @@ async function exportCurrent() {
         link.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
         setStatus(`WAV exportado (${(blob.size / 1048576).toFixed(1)} MB)`);
-    } catch (error) {
-        setStatus(`export: ${error && error.message ? error.message : error}`, true);
-    } finally {
+    }
+    catch (error) {
+        setStatus(`export: ${error instanceof Error ? error.message : error}`, true);
+    }
+    finally {
         if (context && exports)
             exports.rp_destroy(context);
         if (outputPointer && exports)
@@ -638,28 +615,25 @@ async function exportCurrent() {
         updateTransport();
     }
 }
-
 async function loadFile(file, autoplay = false) {
     const token = ++state.loadToken;
     state.loading = true;
     state.pendingAutoplay = !!autoplay;
     setStatus('cargando…');
-
     try {
         const buffer = await file.arrayBuffer();
         let engine = engineForFile(file);
         let record = null;
         let info = null;
-
         try {
             setStatus(`cargando motor ${engine.name}…`);
             record = await loadEngine(engine);
             info = await readMetadata(record.module, buffer);
-        } catch (error) {
+        }
+        catch (error) {
             if (engine === ALL_ENGINE)
                 throw error;
         }
-
         // Unknown extension or a wrong/partial per-engine module: fall back to
         // the all-in-one module, which probes every decoder.
         if (!info && engine !== ALL_ENGINE) {
@@ -668,12 +642,10 @@ async function loadFile(file, autoplay = false) {
             record = await loadEngine(engine);
             info = await readMetadata(record.module, buffer);
         }
-
-        if (!info)
+        if (!info || !record)
             throw new Error('formato no soportado o archivo corrupto');
         if (token !== state.loadToken)
             return;
-
         const tags = readTags(new Uint8Array(buffer), info.format);
         state.module = record.module;
         state.wasmBytes = record.bytes;
@@ -692,41 +664,37 @@ async function loadFile(file, autoplay = false) {
         state.file = file;
         state.title = file.name.replace(/\.[^.]+$/, '');
         state.bytes = buffer;
-
         $('drop').hidden = true;
         $('player').hidden = false;
         updateTrackInfo();
         updatePosition();
         updateTransport();
         renderPlaylist();
-
         await startAudio(autoplay);
         if (token !== state.loadToken)
             return;
         state.loading = false;
-    } catch (error) {
+    }
+    catch (error) {
         if (token !== state.loadToken)
             return;
         state.loading = false;
         state.pendingAutoplay = false;
-        const message = String(error && error.message ? error.message : error);
-        setStatus(message, true);
+        setStatus(error instanceof Error ? error.message : String(error), true);
         if ($('player').hidden)
             $('drop').classList.add('error');
     }
 }
-
 async function togglePlay() {
     if (!state.node || !state.audioContext)
         return;
-
     if (state.audioContext.state === 'suspended')
         await state.audioContext.resume();
-
     if (state.playing) {
         state.node.port.postMessage({ type: 'pause' });
         state.playing = false;
-    } else {
+    }
+    else {
         if (state.frames > 0 && state.position >= state.frames) {
             state.node.port.postMessage({ type: 'seek', frame: 0 });
             state.position = 0;
@@ -736,7 +704,6 @@ async function togglePlay() {
     }
     updateTransport();
 }
-
 function stopPlayback() {
     if (!state.node)
         return;
@@ -747,7 +714,6 @@ function stopPlayback() {
     updatePosition();
     setStatus('detenido');
 }
-
 function seekTo(frame) {
     if (!state.node || !state.frames)
         return;
@@ -756,11 +722,9 @@ function seekTo(frame) {
     state.position = frame;
     updatePosition();
 }
-
 function seekBy(seconds) {
     seekTo(state.position + seconds * state.rate);
 }
-
 function setVolume(value) {
     state.volume = Math.max(0, Math.min(1, value));
     if (state.volume > 0)
@@ -771,17 +735,15 @@ function setVolume(value) {
     $('mute').textContent = state.volume === 0 ? '\uD83D\uDD07' : '\uD83D\uDD0A';
     saveSettings();
 }
-
 $('pick').onclick = () => $('file').click();
 $('change').onclick = () => $('file').click();
 $('file').onchange = () => {
     addFiles($('file').files);
     $('file').value = '';
 };
-
-$('play').onclick = () => togglePlay();
+$('play').onclick = () => { void togglePlay(); };
 $('stop').onclick = () => stopPlayback();
-$('export').onclick = () => exportCurrent();
+$('export').onclick = () => { void exportCurrent(); };
 $('prev').onclick = () => previous();
 $('next').onclick = () => next();
 $('shuffle').onclick = () => {
@@ -796,8 +758,7 @@ $('repeat').onclick = () => {
     saveSettings();
     setStatus(`repeat: ${state.repeatMode}`);
 };
-$('clear').onclick = () => clearQueue();
-
+$('clear').onclick = () => { void clearQueue(); };
 $('seek').oninput = () => {
     state.seeking = true;
     if (state.frames > 0)
@@ -808,10 +769,8 @@ $('seek').onchange = () => {
     state.seeking = false;
     updatePosition();
 };
-
 $('vol').oninput = () => setVolume(Number($('vol').value) / 100);
 $('mute').onclick = () => setVolume(state.volume > 0 ? 0 : (state.lastVolume || 0.8));
-
 $('subsong').onchange = () => {
     if (!state.node)
         return;
@@ -820,7 +779,6 @@ $('subsong').onchange = () => {
     state.node.port.postMessage({ type: 'subsong', index });
     setStatus(`subsong ${index + 1}`);
 };
-
 ['dragenter', 'dragover'].forEach((type) => {
     document.addEventListener(type, (event) => {
         event.preventDefault();
@@ -836,30 +794,33 @@ $('subsong').onchange = () => {
 });
 document.addEventListener('drop', (event) => {
     event.preventDefault();
-    addFiles(event.dataTransfer && event.dataTransfer.files);
+    addFiles(event.dataTransfer?.files ?? null);
 });
-
 document.addEventListener('keydown', (event) => {
-    if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName))
+    const target = event.target;
+    if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
         return;
     if (event.code === 'Space') {
         event.preventDefault();
-        togglePlay();
-    } else if (event.code === 'ArrowRight') {
+        void togglePlay();
+    }
+    else if (event.code === 'ArrowRight') {
         event.preventDefault();
         seekBy(5);
-    } else if (event.code === 'ArrowLeft') {
+    }
+    else if (event.code === 'ArrowLeft') {
         event.preventDefault();
         seekBy(-5);
-    } else if (event.code === 'KeyN') {
+    }
+    else if (event.code === 'KeyN') {
         event.preventDefault();
         next();
-    } else if (event.code === 'KeyP') {
+    }
+    else if (event.code === 'KeyP') {
         event.preventDefault();
         previous();
     }
 });
-
 if (NO_CACHE) {
     // Development mode: drop any installed worker and cached assets, then
     // reload once so the current page stops being controlled by it.
@@ -869,20 +830,23 @@ if (NO_CACHE) {
             .then(() => 'caches' in window ? caches.keys() : [])
             .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
             .then(() => {
-                if (navigator.serviceWorker.controller && !sessionStorage.getItem('rp-nocache-reload')) {
-                    sessionStorage.setItem('rp-nocache-reload', '1');
-                    location.reload();
-                }
-            })
-            .catch(() => { /* cache is optional */ });
-    }
-} else {
-    try { sessionStorage.removeItem('rp-nocache-reload'); } catch (e) { /* ignore */ }
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').catch(() => { /* offline cache is optional */ });
+            if (navigator.serviceWorker.controller && !sessionStorage.getItem('rp-nocache-reload')) {
+                sessionStorage.setItem('rp-nocache-reload', '1');
+                location.reload();
+            }
+        })
+            .catch(() => { });
     }
 }
-
+else {
+    try {
+        sessionStorage.removeItem('rp-nocache-reload');
+    }
+    catch (e) { /* ignore */ }
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => { });
+    }
+}
 (function init() {
     const saved = loadSettings();
     if (typeof saved.volume === 'number')
@@ -893,7 +857,6 @@ if (NO_CACHE) {
         state.repeatMode = saved.repeat;
     if (typeof saved.shuffle === 'boolean')
         state.shuffle = saved.shuffle;
-
     $('tech').textContent = NO_CACHE ? 'cache off · motores bajo demanda' : 'motores bajo demanda';
     setStatus(NO_CACHE ? 'cache desactivada' : 'listo');
     renderPlaylist();
