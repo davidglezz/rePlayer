@@ -108,6 +108,7 @@ interface AppState {
     shuffle: boolean;
     pendingAutoplay: boolean;
     loading: boolean;
+    loaded: boolean;
     loadToken: number;
     exporting: boolean;
 }
@@ -154,6 +155,7 @@ const state: AppState = {
     shuffle: false,
     pendingAutoplay: false,
     loading: false,
+    loaded: false,
     loadToken: 0,
     exporting: false,
 };
@@ -520,6 +522,7 @@ function previous(autoplay = true): void {
 function onProcessorMessage(message: ProcessorMessage): void {
     switch (message.type) {
         case 'loaded':
+            state.loaded = true;
             state.playing = state.pendingAutoplay;
             state.pendingAutoplay = false;
             state.position = 0;
@@ -570,6 +573,7 @@ function onProcessorMessage(message: ProcessorMessage): void {
             }
             break;
         case 'error':
+            state.loaded = true;
             state.pendingAutoplay = false;
             state.playing = false;
             state.loading = false;
@@ -627,21 +631,28 @@ async function startAudio(autoplay: boolean): Promise<void> {
     state.node = node;
 
     const buffer = state.bytes;
-    const module = state.module;
-    if (!buffer || !module)
+    const wasm = state.wasmBytes;
+    if (!buffer || !wasm)
         throw new Error('no hay audio cargado');
     state.bytes = null;
-    // WebAssembly.Module is structured-cloneable; send the bytes too as a
-    // fallback for engines/contexts that reject the module clone.
-    const wasmCopy = state.wasmBytes ? state.wasmBytes.slice(0) : undefined;
-    const transfer: Transferable[] = wasmCopy ? [buffer, wasmCopy] : [buffer];
+    // Chromium can drop a WebAssembly.Module sent through an AudioWorklet
+    // MessagePort without raising DataCloneError, which left the player stuck
+    // at "cargando motor…". Always send the module bytes and instantiate on the
+    // audio thread instead.
+    const wasmCopy = wasm.slice(0);
+    state.loaded = false;
+    const token = state.loadToken;
     node.port.postMessage({
         type: 'load',
-        module,
         wasm: wasmCopy,
         data: buffer,
         autoplay: !!autoplay,
-    }, transfer);
+    }, [buffer, wasmCopy]);
+
+    window.setTimeout(() => {
+        if (state.loadToken === token && state.node === node && !state.loaded)
+            setStatus('el motor no respondió; recarga la página', true);
+    }, 10000);
 
     if (context.state === 'suspended')
         await context.resume();

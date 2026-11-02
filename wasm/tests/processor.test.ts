@@ -2,16 +2,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { WEB, makeWav, toArrayBuffer } from './helpers';
+import { WEB, makeWav, readWasm, sampleFromEnv, toArrayBuffer } from './helpers';
+
+const hivelyPath = sampleFromEnv('REPLAYER_HVL');
 
 interface PortMessage {
     type: string;
     message?: string;
     ratio?: number;
+    format?: number;
 }
 
 interface ProcessorLike {
-    load(message: { type: 'load'; module: WebAssembly.Module; data: ArrayBuffer; autoplay?: boolean }): Promise<void>;
+    load(message: {
+        type: 'load';
+        module?: WebAssembly.Module;
+        wasm?: ArrayBuffer;
+        data: ArrayBuffer;
+        autoplay?: boolean;
+    }): Promise<void>;
     onMessage(message: Record<string, unknown>): void;
     process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean;
 }
@@ -124,6 +133,23 @@ describe('AudioWorklet processor', () => {
         expect(await render(processor)).toBeGreaterThan(1e-4);
     });
 
+    it('loads the module from bytes, the path the app uses', async () => {
+        const { load, messages } = buildProcessor();
+        const processor = await load();
+
+        await processor.load({
+            type: 'load',
+            wasm: toArrayBuffer(readWasm('engines/wav.wasm')),
+            data: toArrayBuffer(makeWav(48000, 1)),
+        });
+        const loaded = messages.find((message) => message.type === 'loaded');
+        expect(loaded, JSON.stringify(messages)).toBeDefined();
+        expect(loaded!.ratio).toBeCloseTo(1, 6);
+
+        processor.onMessage({ type: 'play' });
+        expect(await render(processor)).toBeGreaterThan(1e-4);
+    });
+
     it('reports an error for unsupported data', async () => {
         const { load, messages } = buildProcessor();
         const processor = await load();
@@ -132,5 +158,25 @@ describe('AudioWorklet processor', () => {
 
         await processor.load({ type: 'load', module, data });
         expect(messages.some((message) => message.type === 'error')).toBe(true);
+    });
+});
+
+describe.skipIf(!hivelyPath)('AudioWorklet + Hively bytes', () => {
+    it('loads and renders a .hvl with the module bytes', async () => {
+        const { load, messages } = buildProcessor();
+        const processor = await load();
+        const data = toArrayBuffer(fs.readFileSync(hivelyPath!));
+
+        await processor.load({
+            type: 'load',
+            wasm: toArrayBuffer(readWasm('engines/hively.wasm')),
+            data,
+            autoplay: true,
+        });
+        const loaded = messages.find((message) => message.type === 'loaded');
+        expect(loaded, JSON.stringify(messages)).toBeDefined();
+        expect(loaded!.format).toBe(5);
+
+        expect(await render(processor)).toBeGreaterThan(1e-4);
     });
 });
