@@ -747,6 +747,10 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* offline cache is optional */ });
+}
+
 (function init() {
     const saved = loadSettings();
     if (typeof saved.volume === 'number')

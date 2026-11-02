@@ -116,6 +116,15 @@ Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
 - Los ficheros que no se pueden cargar muestran el error y se pueden quitar de
   la lista; no bloquean el resto.
 
+## PWA / offline
+
+- `manifest.webmanifest` + `icon-192.png` / `icon-512.png`: la app se puede
+  instalar desde Chrome/Edge.
+- `sw.js` cachea la shell y **todos** los módulos wasm en la primera visita; a
+  partir de ahí funciona sin red (sigue haciendo falta `localhost` o HTTPS para
+  el `AudioWorklet` y el service worker).
+- Si cambias la UI o los `.wasm`, sube `CACHE` en `sw.js` para invalidar.
+
 ## Limitaciones de este prototipo
 
 - 5 motores (WAV/FLAC/MP3/PreTracker/Hively). El resto de los 62 necesitaría
@@ -131,17 +140,12 @@ Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
 - El `AudioContext` se intenta crear con la frecuencia del archivo. Si el
   navegador impone otra, el `AudioWorklet` hace **resampling lineal** en tiempo
   real (se muestra `resampling X → Y Hz`).
-- Sin metadatos (título/artista) ni carátulas; se usa el nombre del archivo.
-- Sin playlist, biblioteca, búsqueda, base de datos ni ajustes persistentes.
+- Sin carátulas, biblioteca, búsqueda ni base de datos.
 - Sin hilos ni `SharedArrayBuffer`; toda la decodificación ocurre en el
   `AudioWorklet`.
 
 ## Siguiente paso lógico
 
 1. Envolver el `ReplayPlugin` existente en una ABI C estable (opaque handle) y
-   compilar otro motor piloto (p. ej. OpenMPT o VGMStream) a wasm.
-2. Añadir resampling lineal en el `AudioWorklet` para aceptar cualquier
-   frecuencia de contexto.
-3. Añadir metadatos (ID3/FLAC tags) y playlist en la UI.
-4. Cargar motores bajo demanda (módulos separados) para no meter los 62 en un
-   único `.wasm`.
+   compilar más motores (OpenMPT, VGMStream, etc.) a wasm.
+2. Añadir carátulas y persistencia de la playlist (File System Access API).
