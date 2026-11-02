@@ -198,6 +198,20 @@ body {
     font-size: 18px;
 }
 
+.btn.mini {
+    width: 34px;
+    height: 30px;
+    padding: 0;
+    font-size: 14px;
+    border-radius: 8px;
+}
+
+.btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(63, 167, 255, .12);
+}
+
 .now {
     display: flex;
     align-items: center;
@@ -302,6 +316,101 @@ input[type="range"]:disabled {
     color: var(--error);
 }
 
+.playlist {
+    margin-top: 18px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+}
+
+.playlist-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    color: var(--muted);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.playlist-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.count {
+    color: var(--muted);
+}
+
+#playlist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 220px;
+    overflow: auto;
+}
+
+#playlist li {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 8px;
+}
+
+#playlist li.current {
+    background: rgba(63, 167, 255, .10);
+}
+
+#playlist li.current .track {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+#playlist .track {
+    flex: 1;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    padding: 7px 8px;
+    font: inherit;
+    font-size: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#playlist .track:hover {
+    background: #1e2630;
+}
+
+#playlist .remove {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#playlist .remove:hover {
+    color: var(--error);
+    background: rgba(255, 107, 107, .10);
+}
+
+#playlist .empty {
+    color: var(--muted);
+    font-size: 12px;
+    padding: 8px 4px;
+}
+
 .footer {
     display: flex;
     justify-content: space-between;
@@ -321,6 +430,11 @@ input[type="range"]:disabled {
 
     .btn.ghost {
         width: 100%;
+    }
+
+    .btn.transport {
+        width: 52px;
+        height: 48px;
     }
 
     .status {

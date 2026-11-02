@@ -18,8 +18,8 @@
             <h1>Arrastra un archivo de audio</h1>
             <p>o elige uno desde el disco</p>
             <button class="btn primary" id="pick">Elegir archivo</button>
-            <p class="hint">WAV, FLAC, MP3, PreTracker (.prt/.pt) o Hively (.hvl/.ahx/.thx) · todo se decodifica en local</p>
-            <input type="file" id="file" accept=".wav,.flac,.mp3,.prt,.pt,.hvl,.ahx,.thx,audio/*" hidden>
+            <p class="hint">WAV, FLAC, MP3, PreTracker (.prt/.pt) o Hively (.hvl/.ahx/.thx) · uno o varios archivos · todo en local</p>
+            <input type="file" id="file" accept=".wav,.flac,.mp3,.prt,.pt,.hvl,.ahx,.thx,audio/*" multiple hidden>
         </section>
 
         <section class="panel player" id="player" hidden>
@@ -29,7 +29,7 @@
                     <h1 id="title">—</h1>
                     <p id="meta" class="meta"></p>
                 </div>
-                <button class="btn ghost" id="change" title="Cargar otro archivo">Cambiar</button>
+                <button class="btn ghost" id="change" title="Añadir archivos">Añadir</button>
             </div>
 
             <div class="subsong" id="subsongRow" hidden>
@@ -43,14 +43,28 @@
             </div>
 
             <div class="controls">
+                <button class="btn transport" id="prev" title="Anterior">&#9198;</button>
                 <button class="btn transport" id="play" title="Play / Pause">&#9654;</button>
                 <button class="btn transport" id="stop" title="Stop">&#9632;</button>
+                <button class="btn transport" id="next" title="Siguiente">&#9197;</button>
             </div>
 
             <div class="row">
                 <button class="btn icon" id="mute" title="Mute">&#128266;</button>
                 <input type="range" id="vol" min="0" max="100" value="80" title="Volumen">
                 <span class="status" id="status">listo</span>
+            </div>
+
+            <div class="playlist">
+                <div class="playlist-head">
+                    <span>Playlist <span class="count" id="plcount"></span></span>
+                    <div class="playlist-actions">
+                        <button class="btn mini" id="shuffle" title="Aleatorio">&#128256;</button>
+                        <button class="btn mini" id="repeat" title="Repetir">&#128257;</button>
+                        <button class="btn mini" id="clear" title="Vaciar playlist">&#128465;</button>
+                    </div>
+                </div>
+                <ol id="playlist"><li class="empty">Arrastra uno o varios archivos…</li></ol>
             </div>
         </section>
 

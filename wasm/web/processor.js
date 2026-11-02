@@ -113,7 +113,7 @@ class RpProcessor extends AudioWorkletProcessor {
             this.totalFrames = Number(this.exports.rp_frames(this.ctx));
             this.fileRate = this.exports.rp_sample_rate(this.ctx);
             this.ratio = this.fileRate > 0 && sampleRate > 0 ? this.fileRate / sampleRate : 1;
-            this.playing = false;
+            this.playing = !!message.autoplay;
             this.resetPlayback(0);
 
             this.bufferFrames = 4096;

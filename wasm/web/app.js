@@ -35,6 +35,14 @@ const state = {
     volume: 0.8,
     lastVolume: 0.8,
     seeking: false,
+    queue: [],
+    queueIndex: -1,
+    nextQueueId: 1,
+    repeatMode: 'off',
+    shuffle: false,
+    pendingAutoplay: false,
+    loading: false,
+    loadToken: 0,
 };
 
 function engineForFile(file) {
@@ -115,6 +123,8 @@ function setStatus(text, isError = false) {
 function updateTransport() {
     $('play').textContent = state.playing ? '\u23F8' : '\u25B6';
     $('play').disabled = !state.node;
+    $('prev').disabled = state.queue.length === 0;
+    $('next').disabled = state.queue.length === 0;
     const atEnd = state.frames > 0 && state.position >= state.frames;
     $('dot').className = 'dot ' + (state.playing ? 'playing' : (state.position > 0 && !atEnd ? 'paused' : ''));
 }
@@ -157,10 +167,179 @@ function updateTrackInfo() {
     updateSubsongUI();
 }
 
+function renderPlaylist() {
+    const list = $('playlist');
+    list.innerHTML = '';
+    $('plcount').textContent = state.queue.length ? `(${state.queue.length})` : '';
+    if (!state.queue.length) {
+        const empty = document.createElement('li');
+        empty.className = 'empty';
+        empty.textContent = 'Arrastra uno o varios archivos…';
+        list.appendChild(empty);
+        return;
+    }
+
+    state.queue.forEach((item, index) => {
+        const row = document.createElement('li');
+        if (index === state.queueIndex)
+            row.className = 'current';
+
+        const play = document.createElement('button');
+        play.className = 'track';
+        play.textContent = item.name;
+        play.title = item.name;
+        play.onclick = () => playIndex(index);
+        row.appendChild(play);
+
+        const remove = document.createElement('button');
+        remove.className = 'remove';
+        remove.textContent = '\u00D7';
+        remove.title = 'Quitar de la playlist';
+        remove.onclick = (event) => {
+            event.stopPropagation();
+            removeFromQueue(index);
+        };
+        row.appendChild(remove);
+
+        list.appendChild(row);
+    });
+}
+
+function updateModeButtons() {
+    $('shuffle').classList.toggle('active', state.shuffle);
+    $('repeat').classList.toggle('active', state.repeatMode !== 'off');
+    $('repeat').textContent = state.repeatMode === 'one' ? '\uD83D\uDD02' : '\uD83D\uDD01';
+    $('repeat').title = state.repeatMode === 'off' ? 'Repetir: off' : (state.repeatMode === 'one' ? 'Repetir: una' : 'Repetir: todas');
+    $('shuffle').title = state.shuffle ? 'Aleatorio: on' : 'Aleatorio: off';
+}
+
+function addFiles(fileList) {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length)
+        return;
+
+    for (const file of files)
+        state.queue.push({ id: state.nextQueueId++, file, name: file.name });
+
+    $('drop').hidden = true;
+    $('player').hidden = false;
+    renderPlaylist();
+    updateTransport();
+
+    if (state.queueIndex < 0)
+        playIndex(0, true);
+    else
+        setStatus(`${files.length} archivo(s) añadido(s)`);
+}
+
+async function playIndex(index, autoplay = true) {
+    if (index < 0 || index >= state.queue.length || state.loading)
+        return;
+    state.queueIndex = index;
+    renderPlaylist();
+    await loadFile(state.queue[index].file, autoplay);
+}
+
+async function removeFromQueue(index) {
+    if (index < 0 || index >= state.queue.length)
+        return;
+
+    const wasCurrent = index === state.queueIndex;
+    state.queue.splice(index, 1);
+
+    if (wasCurrent) {
+        state.loadToken++;
+        state.loading = false;
+        await stopAudio();
+        state.node = null;
+        state.queueIndex = -1;
+        state.playing = false;
+        if (state.queue.length) {
+            const nextIndex = Math.min(index, state.queue.length - 1);
+            playIndex(nextIndex, true);
+        } else {
+            $('player').hidden = true;
+            $('drop').hidden = false;
+            setStatus('playlist vacía');
+        }
+    } else if (index < state.queueIndex) {
+        state.queueIndex--;
+    }
+
+    renderPlaylist();
+    updateTransport();
+}
+
+async function clearQueue() {
+    if (!state.queue.length)
+        return;
+    if (!confirm('¿Vaciar la playlist?'))
+        return;
+
+    state.queue = [];
+    state.queueIndex = -1;
+    state.loadToken++;
+    state.loading = false;
+    await stopAudio();
+    state.node = null;
+    $('player').hidden = true;
+    $('drop').hidden = false;
+    renderPlaylist();
+    updateTransport();
+    setStatus('playlist vacía');
+}
+
+function next(autoplay = true) {
+    if (!state.queue.length)
+        return;
+
+    let index;
+    if (state.shuffle) {
+        if (state.queue.length === 1)
+            index = 0;
+        else
+            do { index = Math.floor(Math.random() * state.queue.length); } while (index === state.queueIndex);
+    } else {
+        index = state.queueIndex + 1;
+        if (index >= state.queue.length) {
+            if (state.repeatMode === 'all')
+                index = 0;
+            else {
+                setStatus('fin de la lista');
+                return;
+            }
+        }
+    }
+    playIndex(index, autoplay);
+}
+
+function previous(autoplay = true) {
+    if (!state.queue.length)
+        return;
+
+    let index;
+    if (state.shuffle) {
+        if (state.queue.length === 1)
+            index = 0;
+        else
+            do { index = Math.floor(Math.random() * state.queue.length); } while (index === state.queueIndex);
+    } else {
+        index = state.queueIndex - 1;
+        if (index < 0) {
+            if (state.repeatMode === 'all')
+                index = state.queue.length - 1;
+            else
+                index = 0;
+        }
+    }
+    playIndex(index, autoplay);
+}
+
 function onProcessorMessage(message) {
     switch (message.type) {
         case 'loaded':
-            state.playing = false;
+            state.playing = state.pendingAutoplay;
+            state.pendingAutoplay = false;
             state.position = 0;
             $('seek').disabled = false;
             updatePosition();
@@ -197,10 +376,21 @@ function onProcessorMessage(message) {
             state.position = state.frames;
             updatePosition();
             updateTransport();
-            setStatus('fin');
+            if (state.repeatMode === 'one' && state.node) {
+                state.node.port.postMessage({ type: 'seek', frame: 0 });
+                state.node.port.postMessage({ type: 'play' });
+                state.playing = true;
+                state.position = 0;
+                updateTransport();
+                setStatus('repitiendo');
+            } else {
+                next(true);
+            }
             break;
         case 'error':
+            state.pendingAutoplay = false;
             state.playing = false;
+            state.loading = false;
             updateTransport();
             setStatus(message.message, true);
             break;
@@ -222,7 +412,7 @@ async function stopAudio() {
     state.playing = false;
 }
 
-async function startAudio() {
+async function startAudio(autoplay) {
     await stopAudio();
 
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -247,7 +437,10 @@ async function startAudio() {
         numberOfOutputs: 1,
         outputChannelCount: [2],
     });
-    node.port.onmessage = (event) => onProcessorMessage(event.data);
+    node.port.onmessage = (event) => {
+        if (state.node === node)
+            onProcessorMessage(event.data);
+    };
     node.connect(context.destination);
     state.node = node;
 
@@ -257,13 +450,22 @@ async function startAudio() {
     // fallback for engines/contexts that reject the module clone.
     const wasmCopy = state.wasmBytes ? state.wasmBytes.slice(0) : undefined;
     const transfer = wasmCopy ? [buffer, wasmCopy] : [buffer];
-    node.port.postMessage({ type: 'load', module: state.module, wasm: wasmCopy, data: buffer }, transfer);
+    node.port.postMessage({
+        type: 'load',
+        module: state.module,
+        wasm: wasmCopy,
+        data: buffer,
+        autoplay: !!autoplay,
+    }, transfer);
 
     if (context.state === 'suspended')
         await context.resume();
 }
 
-async function loadFile(file) {
+async function loadFile(file, autoplay = false) {
+    const token = ++state.loadToken;
+    state.loading = true;
+    state.pendingAutoplay = !!autoplay;
     setStatus('cargando…');
 
     try {
@@ -292,6 +494,8 @@ async function loadFile(file) {
 
         if (!info)
             throw new Error('formato no soportado o archivo corrupto');
+        if (token !== state.loadToken)
+            return;
 
         state.module = record.module;
         state.wasmBytes = record.bytes;
@@ -316,9 +520,17 @@ async function loadFile(file) {
         updateTrackInfo();
         updatePosition();
         updateTransport();
+        renderPlaylist();
 
-        await startAudio();
+        await startAudio(autoplay);
+        if (token !== state.loadToken)
+            return;
+        state.loading = false;
     } catch (error) {
+        if (token !== state.loadToken)
+            return;
+        state.loading = false;
+        state.pendingAutoplay = false;
         const message = String(error && error.message ? error.message : error);
         setStatus(message, true);
         if ($('player').hidden)
@@ -384,14 +596,25 @@ function setVolume(value) {
 $('pick').onclick = () => $('file').click();
 $('change').onclick = () => $('file').click();
 $('file').onchange = () => {
-    const file = $('file').files && $('file').files[0];
-    if (file)
-        loadFile(file);
+    addFiles($('file').files);
     $('file').value = '';
 };
 
 $('play').onclick = () => togglePlay();
 $('stop').onclick = () => stopPlayback();
+$('prev').onclick = () => previous();
+$('next').onclick = () => next();
+$('shuffle').onclick = () => {
+    state.shuffle = !state.shuffle;
+    updateModeButtons();
+    setStatus(state.shuffle ? 'aleatorio' : 'orden normal');
+};
+$('repeat').onclick = () => {
+    state.repeatMode = state.repeatMode === 'off' ? 'all' : (state.repeatMode === 'all' ? 'one' : 'off');
+    updateModeButtons();
+    setStatus(`repeat: ${state.repeatMode}`);
+};
+$('clear').onclick = () => clearQueue();
 
 $('seek').oninput = () => {
     state.seeking = true;
@@ -431,9 +654,7 @@ $('subsong').onchange = () => {
 });
 document.addEventListener('drop', (event) => {
     event.preventDefault();
-    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
-    if (file)
-        loadFile(file);
+    addFiles(event.dataTransfer && event.dataTransfer.files);
 });
 
 document.addEventListener('keydown', (event) => {
@@ -448,10 +669,18 @@ document.addEventListener('keydown', (event) => {
     } else if (event.code === 'ArrowLeft') {
         event.preventDefault();
         seekBy(-5);
+    } else if (event.code === 'KeyN') {
+        event.preventDefault();
+        next();
+    } else if (event.code === 'KeyP') {
+        event.preventDefault();
+        previous();
     }
 });
 
 (function init() {
     $('tech').textContent = 'motores bajo demanda';
     setStatus('listo');
+    renderPlaylist();
+    updateModeButtons();
 })();

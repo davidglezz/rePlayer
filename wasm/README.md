@@ -99,8 +99,19 @@ node .\wasm\test-engines.cjs C:\ruta\a\modulo.prt C:\ruta\a\modulo.hvl
 node .\wasm\server.mjs
 ```
 
-Abre **http://127.0.0.1:8787/**, arrastra un WAV/FLAC/MP3 y dale a play.
+Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
 `127.0.0.1` es contexto seguro, así que `AudioWorklet` funciona sin HTTPS.
+
+## Reproductor
+
+- Playlist con **varios archivos** (selección múltiple o arrastrando varios).
+- **Anterior/siguiente**, auto-avance al terminar, **repetir** (off/todas/una) y
+  **aleatorio**.
+- Quitar canciones de la lista, vaciarla, seek, volumen/mute y selector de
+  subsong cuando el motor lo soporta.
+- Atajos: `Espacio` play/pausa, `←`/`→` ±5 s, `N` siguiente, `P` anterior.
+- Los ficheros que no se pueden cargar muestran el error y se pueden quitar de
+  la lista; no bloquean el resto.
 
 ## Limitaciones de este prototipo
 
@@ -108,6 +119,8 @@ Abre **http://127.0.0.1:8787/**, arrastra un WAV/FLAC/MP3 y dale a play.
   una ABI C por motor o un proxy que envuelva el `ReplayPlugin` actual.
 - `core.wasm` incluye los 5 decoders y se usa como fallback; para producción se
   podría eliminar y dejar solo los módulos por motor.
+- La playlist vive en memoria: al recargar la página se pierde (los `File` del
+  navegador no se pueden persistir sin volver a pedir permiso).
 - PreTracker no tiene seek nativo: el core reinicia el player y descarta frames
   hasta la posición pedida. Funciona, pero un seek lejano tarda.
 - El cambio de subsong está implementado y probado con módulos de un solo

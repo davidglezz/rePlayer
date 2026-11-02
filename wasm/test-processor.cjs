@@ -99,6 +99,25 @@ function makeWav(rate, seconds = 1) {
 
     await run('direct 48k -> 48k', 48000);
     await run('resample 44.1k -> 48k', 44100);
+
+    // Playlist/autoplay: the load message can start playback by itself.
+    messages.length = 0;
+    const autoplay = new Processor();
+    const wav = makeWav(48000);
+    const data = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength);
+    await autoplay.load({ type: 'load', module, data, autoplay: true });
+    let autoplayPeak = 0;
+    for (let block = 0; block < 20; block++) {
+        const left = new Float32Array(128);
+        const right = new Float32Array(128);
+        autoplay.process([], [[left, right]]);
+        for (let i = 0; i < left.length; i++)
+            autoplayPeak = Math.max(autoplayPeak, Math.abs(left[i]));
+    }
+    if (autoplayPeak < 1e-4)
+        throw new Error('autoplay rendered silence');
+    console.log(`ok: autoplay (peak ${autoplayPeak.toFixed(3)})`);
+
     console.log('ok: processor direct + resampled rendering');
 })().catch((error) => {
     console.error('FAIL:', error.message);
