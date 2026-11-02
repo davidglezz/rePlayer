@@ -22,6 +22,7 @@ wasm/
   web/core.wasm     # módulo "all" de fallback (203 KB, sin imports)
   tsconfig.json     # build de la app
   tsconfig.sw.json  # build del service worker (lib WebWorker)
+  tsconfig.test.json# typecheck de src + tests
 ```
 
 ## Formatos y ABI
@@ -89,10 +90,28 @@ de desarrollo y compila `src/*.ts` a `web/*.js`:
 cd .\wasm
 npm install
 npm run build      # tsc: app + service worker
+npm run typecheck  # comprueba también los tests, sin emitir
 ```
 
 `web/*.js` se versiona, así que el demo funciona sin compilar. Solo hay que
 ejecutar `npm run build` si tocas `src/`.
+
+Tests con **Vitest** (generan WAV en memoria; no hace falta navegador):
+
+```powershell
+npm test           # todos los tests una vez
+npm run test:watch # modo watch
+npm run check      # typecheck + build + tests
+```
+
+Los tests de PreTracker/Hively necesitan módulos de ejemplo que no están en el
+repo. Se activan apuntando las variables de entorno a un archivo local:
+
+```powershell
+$env:REPLAYER_PRT = "C:\ruta\a\modulo.prt"
+$env:REPLAYER_HVL = "C:\ruta\a\modulo.hvl"
+npm test
+```
 
 ## Ejecutar
 

@@ -4,12 +4,17 @@
     "type": "module",
     "scripts": {
         "build": "tsc -p tsconfig.json && tsc -p tsconfig.sw.json",
+        "typecheck": "tsc -p tsconfig.test.json",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "check": "npm run typecheck && npm run build && npm test",
         "serve": "tsx src/server.ts",
         "serve:nocache": "tsx src/server.ts --no-cache"
     },
     "devDependencies": {
         "@types/node": "^26.6.6",
         "tsx": "^4.23.15",
-        "typescript": "^5.9.2"
+        "typescript": "^5.9.2",
+        "vitest": "^5.1.0"
     }
 }
