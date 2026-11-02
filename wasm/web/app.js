@@ -1,3 +1,5 @@
+import { readTags } from './tags.js';
+
 const $ = (id) => document.getElementById(id);
 
 const FORMATS = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively' };
@@ -667,6 +669,7 @@ async function loadFile(file, autoplay = false) {
         if (token !== state.loadToken)
             return;
 
+        const tags = readTags(new Uint8Array(buffer), info.format);
         state.module = record.module;
         state.wasmBytes = record.bytes;
         state.engineName = engine.name;
@@ -674,8 +677,8 @@ async function loadFile(file, autoplay = false) {
         state.rate = info.rate;
         state.channels = info.channels;
         state.frames = info.frames;
-        state.engineTitle = info.title;
-        state.engineArtist = info.artist;
+        state.engineTitle = info.title || tags.title;
+        state.engineArtist = info.artist || tags.artist;
         state.subsongCount = info.subsongCount;
         state.subsong = info.subsong;
         state.duration = state.rate ? state.frames / state.rate : 0;

@@ -12,6 +12,7 @@ wasm/
   build.ps1         # compila los módulos wasm con zig (clang + wasm-ld)
   web/index.html    # UI
   web/app.js        # carga de archivos, AudioContext, controles
+  web/tags.js       # WAV INFO, FLAC Vorbis comments, ID3v2/ID3v1
   web/processor.js  # AudioWorklet: renderiza PCM desde el wasm
   web/engines/*.wasm# módulos por motor (wav, flac, mp3, pretracker, hively)
   web/core.wasm     # módulo "all" de fallback (203 KB, sin imports)
@@ -19,6 +20,7 @@ wasm/
   test-core.cjs     # test de humo del core en Node
   test-engines.cjs  # test de los módulos por motor
   test-processor.cjs# test del AudioWorklet (directo + resampling)
+  test-tags.mjs     # test del lector de metadatos
   test-export.cjs   # test de exportación a WAV
 ```
 
@@ -93,7 +95,8 @@ node .\wasm\test-processor.cjs
 # módulos por motor (y aislamiento de formatos)
 node .\wasm\test-engines.cjs C:\ruta\a\modulo.prt C:\ruta\a\modulo.hvl
 
-# exportación a WAV
+# metadatos y exportación a WAV
+node .\wasm\test-tags.mjs
 node .\wasm\test-export.cjs
 ```
 
@@ -114,6 +117,9 @@ Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
 - Quitar canciones de la lista, vaciarla, seek, volumen/mute y selector de
   subsong cuando el motor lo soporta.
 - Atajos: `Espacio` play/pausa, `←`/`→` ±5 s, `N` siguiente, `P` anterior.
+- **Metadatos**: WAV `LIST/INFO`, FLAC Vorbis comments, MP3 ID3v2/ID3v1; los
+  motores PreTracker/Hively aportan título/autor desde su propio parser. Si no
+  hay tags se muestra el nombre del archivo.
 - **Media Session**: título/artista, play/pausa, anterior/siguiente y seek desde
   las teclas multimedia o el sistema operativo.
 - **Persistencia**: volumen, repetir y aleatorio se guardan en `localStorage`.
