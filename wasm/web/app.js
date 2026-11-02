@@ -11,6 +11,68 @@ const ENGINES = [
 ];
 const ALL_ENGINE = { name: 'all', path: 'core.wasm' };
 const engineCache = new Map();
+const SETTINGS_KEY = 'replayer-wasm-settings';
+let lastPositionState = 0;
+
+function loadSettings() {
+    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { return {}; }
+}
+
+function saveSettings() {
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+            volume: state.volume,
+            repeat: state.repeatMode,
+            shuffle: state.shuffle,
+        }));
+    } catch (e) { /* storage disabled */ }
+}
+
+function updateMediaSession() {
+    if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined')
+        return;
+    const title = state.engineTitle || state.title || 'rePlayer wasm';
+    const artist = state.engineArtist || 'rePlayer wasm';
+    navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist,
+        album: FORMATS[state.format] || 'rePlayer wasm',
+        artwork: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' }],
+    });
+}
+
+function updatePositionState() {
+    if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function')
+        return;
+    if (!state.duration)
+        return;
+    const now = Date.now();
+    if (now - lastPositionState < 500)
+        return;
+    lastPositionState = now;
+    const position = Math.min(Math.max(state.position / state.rate, 0), state.duration);
+    try {
+        navigator.mediaSession.setPositionState({ duration: state.duration, playbackRate: 1, position });
+    } catch (e) { /* stale duration */ }
+}
+
+function setupMediaSession() {
+    if (!('mediaSession' in navigator))
+        return;
+    const handlers = {
+        play: () => { if (!state.playing) togglePlay(); },
+        pause: () => { if (state.playing) togglePlay(); },
+        stop: () => stopPlayback(),
+        previoustrack: () => previous(),
+        nexttrack: () => next(),
+        seekbackward: (details) => seekBy(-(details.seekOffset || 10)),
+        seekforward: (details) => seekBy(details.seekOffset || 10),
+        seekto: (details) => { if (typeof details.seekTime === 'number') seekTo(details.seekTime * state.rate); },
+    };
+    for (const [action, handler] of Object.entries(handlers)) {
+        try { navigator.mediaSession.setActionHandler(action, handler); } catch (e) { /* unsupported action */ }
+    }
+}
 
 const state = {
     module: null,
@@ -127,12 +189,15 @@ function updateTransport() {
     $('next').disabled = state.queue.length === 0;
     const atEnd = state.frames > 0 && state.position >= state.frames;
     $('dot').className = 'dot ' + (state.playing ? 'playing' : (state.position > 0 && !atEnd ? 'paused' : ''));
+    if ('mediaSession' in navigator)
+        navigator.mediaSession.playbackState = state.playing ? 'playing' : (state.node ? 'paused' : 'none');
 }
 
 function updatePosition() {
     if (!state.seeking && state.frames > 0)
         $('seek').value = String(Math.round((state.position / state.frames) * 1000));
     $('time').textContent = fmtTime(state.position / state.rate);
+    updatePositionState();
 }
 
 function updateSubsongUI() {
@@ -165,6 +230,7 @@ function updateTrackInfo() {
     $('duration').textContent = fmtTime(state.duration);
     $('tech').textContent = `${state.engineName || 'wasm'} · ${state.frames.toLocaleString()} frames · ${state.rate} Hz`;
     updateSubsongUI();
+    updateMediaSession();
 }
 
 function renderPlaylist() {
@@ -591,6 +657,7 @@ function setVolume(value) {
         state.node.port.postMessage({ type: 'volume', value: state.volume });
     $('vol').value = String(Math.round(state.volume * 100));
     $('mute').textContent = state.volume === 0 ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+    saveSettings();
 }
 
 $('pick').onclick = () => $('file').click();
@@ -607,11 +674,13 @@ $('next').onclick = () => next();
 $('shuffle').onclick = () => {
     state.shuffle = !state.shuffle;
     updateModeButtons();
+    saveSettings();
     setStatus(state.shuffle ? 'aleatorio' : 'orden normal');
 };
 $('repeat').onclick = () => {
     state.repeatMode = state.repeatMode === 'off' ? 'all' : (state.repeatMode === 'all' ? 'one' : 'off');
     updateModeButtons();
+    saveSettings();
     setStatus(`repeat: ${state.repeatMode}`);
 };
 $('clear').onclick = () => clearQueue();
@@ -679,8 +748,19 @@ document.addEventListener('keydown', (event) => {
 });
 
 (function init() {
+    const saved = loadSettings();
+    if (typeof saved.volume === 'number')
+        setVolume(saved.volume);
+    else
+        setVolume(state.volume);
+    if (saved.repeat === 'off' || saved.repeat === 'all' || saved.repeat === 'one')
+        state.repeatMode = saved.repeat;
+    if (typeof saved.shuffle === 'boolean')
+        state.shuffle = saved.shuffle;
+
     $('tech').textContent = 'motores bajo demanda';
     setStatus('listo');
     renderPlaylist();
     updateModeButtons();
+    setupMediaSession();
 })();

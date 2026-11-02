@@ -110,6 +110,9 @@ Abre **http://127.0.0.1:8787/**, arrastra uno o varios archivos y dale a play.
 - Quitar canciones de la lista, vaciarla, seek, volumen/mute y selector de
   subsong cuando el motor lo soporta.
 - Atajos: `Espacio` play/pausa, `←`/`→` ±5 s, `N` siguiente, `P` anterior.
+- **Media Session**: título/artista, play/pausa, anterior/siguiente y seek desde
+  las teclas multimedia o el sistema operativo.
+- **Persistencia**: volumen, repetir y aleatorio se guardan en `localStorage`.
 - Los ficheros que no se pueden cargar muestran el error y se pueden quitar de
   la lista; no bloquean el resto.
 
