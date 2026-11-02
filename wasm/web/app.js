@@ -10,6 +10,8 @@ const state = {
     file: null,
     bytes: null,
     title: '',
+    engineTitle: '',
+    engineArtist: '',
     format: 0,
     rate: 0,
     channels: 0,
@@ -21,6 +23,16 @@ const state = {
     lastVolume: 0.8,
     seeking: false,
 };
+
+function readCString(exports, pointer) {
+    if (!pointer)
+        return '';
+    const memory = new Uint8Array(exports.memory.buffer);
+    let end = pointer;
+    while (end < memory.length && memory[end] !== 0)
+        end++;
+    return new TextDecoder().decode(memory.subarray(pointer, end));
+}
 
 function fmtTime(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0)
@@ -50,8 +62,10 @@ function updatePosition() {
 
 function updateTrackInfo() {
     const format = FORMATS[state.format] || 'audio';
-    $('title').textContent = state.title || (state.file && state.file.name) || '—';
-    $('meta').textContent = `${format} · ${(state.rate / 1000).toFixed(1)} kHz · ${state.channels} ${state.channels === 1 ? 'canal' : 'canales'} · ${fmtTime(state.duration)}`;
+    const title = state.engineTitle || state.title || (state.file && state.file.name) || '—';
+    const artist = state.engineArtist ? `${state.engineArtist} · ` : '';
+    $('title').textContent = title;
+    $('meta').textContent = `${artist}${format} · ${(state.rate / 1000).toFixed(1)} kHz · ${state.channels} ${state.channels === 1 ? 'canal' : 'canales'} · ${fmtTime(state.duration)}`;
     $('format').textContent = format;
     $('duration').textContent = fmtTime(state.duration);
     $('tech').textContent = `${state.frames.toLocaleString()} frames`;
@@ -181,6 +195,8 @@ async function loadFile(file) {
         state.rate = exports.rp_sample_rate(context);
         state.channels = exports.rp_channels(context);
         state.frames = Number(exports.rp_frames(context));
+        state.engineTitle = readCString(exports, exports.rp_title(context));
+        state.engineArtist = readCString(exports, exports.rp_artist(context));
         exports.rp_destroy(context);
 
         state.duration = state.rate ? state.frames / state.rate : 0;

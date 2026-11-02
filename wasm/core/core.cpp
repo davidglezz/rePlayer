@@ -52,6 +52,9 @@ namespace
         drflac* flac = nullptr;
         PreSong* preTracker = nullptr;
 
+        char title[64] = {};
+        char artist[64] = {};
+
         float* scratch = nullptr;
         uint64_t scratchCapacity = 0; // in floats
     };
@@ -83,11 +86,24 @@ namespace
         ctx->channels = 0;
         ctx->totalFrames = 0;
         ctx->position = 0;
+        ctx->title[0] = '\0';
+        ctx->artist[0] = '\0';
     }
 
     bool HasMagic(const uint8_t* data, uint32_t size, const char* magic, uint32_t offset)
     {
         return size >= offset + 4 && memcmp(data + offset, magic, 4) == 0;
+    }
+
+    void CopyFixedString(char* destination, size_t destinationSize, const char* source, size_t sourceSize)
+    {
+        size_t length = 0;
+        while (length < sourceSize && source[length] != '\0')
+            length++;
+        if (length >= destinationSize)
+            length = destinationSize - 1;
+        memcpy(destination, source, length);
+        destination[length] = '\0';
     }
 }
 
@@ -171,6 +187,12 @@ extern "C"
                 ctx->sampleRate = 48000;
                 ctx->channels = 2;
                 ctx->totalFrames = length > 0 ? static_cast<uint64_t>(length) : 0;
+
+                if (const PreSongMetadata* metadata = pre_song_get_metadata(ctx->preTracker))
+                {
+                    CopyFixedString(ctx->title, sizeof(ctx->title), metadata->song_name, sizeof(metadata->song_name));
+                    CopyFixedString(ctx->artist, sizeof(ctx->artist), metadata->author, sizeof(metadata->author));
+                }
                 return 1;
             }
         }
@@ -206,10 +228,20 @@ extern "C"
         return ctx && ctx->format != Format::kNone;
     }
 
-    // 0: none, 1: WAV, 2: FLAC, 3: MP3.
+    // 0: none, 1: WAV, 2: FLAC, 3: MP3, 4: PreTracker.
     int rp_format(RpContext* ctx)
     {
         return ctx ? static_cast<int>(ctx->format) : 0;
+    }
+
+    const char* rp_title(RpContext* ctx)
+    {
+        return ctx ? ctx->title : "";
+    }
+
+    const char* rp_artist(RpContext* ctx)
+    {
+        return ctx ? ctx->artist : "";
     }
 
     int rp_seek(RpContext* ctx, uint64_t frame)

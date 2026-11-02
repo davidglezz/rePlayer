@@ -13,7 +13,7 @@ wasm/
   web/index.html    # UI
   web/app.js        # carga de archivos, AudioContext, controles
   web/processor.js  # AudioWorklet: renderiza PCM desde el wasm
-  web/core.wasm     # artefacto compilado (166 KB, sin imports)
+  web/core.wasm     # artefacto compilado (167 KB, sin imports)
   server.mjs        # servidor estático local
   test-core.cjs     # test de humo del core en Node
 ```
@@ -26,10 +26,11 @@ wasm/
 - PreTracker es el primer **motor real de rePlayer** integrado en el core:
   usa su API C (`pre_song_create(data, size)`, `pre_song_decode`), se configura
   a 48 kHz y se renderiza a estéreo. `pre_song_get_length()` avanza el player,
-  así que el core lo reinicia después de consultar la duración.
+  así que el core lo reinicia después de consultar la duración. También expone
+  el título y el autor del módulo (`PreSongMetadata`).
 - ABI C mínima: `rp_create`, `rp_load`, `rp_sample_rate`, `rp_channels`,
-  `rp_frames`, `rp_position`, `rp_format`, `rp_seek`, `rp_render`,
-  `rp_destroy`, y `malloc`/`free` para pasar los bytes del archivo.
+  `rp_frames`, `rp_position`, `rp_format`, `rp_title`, `rp_artist`, `rp_seek`,
+  `rp_render`, `rp_destroy`, y `malloc`/`free` para pasar los bytes del archivo.
   `rp_format` devuelve `1` WAV, `2` FLAC, `3` MP3, `4` PreTracker.
 - El módulo **no tiene imports** (`wasm32-wasi` en modo reactor): no usa WASI,
   hilos ni el filesystem. `WebAssembly.Module` se envía al `AudioWorklet`, que

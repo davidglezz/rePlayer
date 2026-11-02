@@ -36,6 +36,14 @@ function check(condition, message) {
         throw new Error(message);
 }
 
+function readCString(exports, pointer) {
+    const memory = new Uint8Array(exports.memory.buffer);
+    let end = pointer;
+    while (end < memory.length && memory[end] !== 0)
+        end++;
+    return Buffer.from(memory.subarray(pointer, end)).toString('utf8');
+}
+
 (async () => {
     const wasmPath = path.join(__dirname, 'web', 'core.wasm');
     const bytes = fs.readFileSync(wasmPath);
@@ -109,6 +117,11 @@ function check(condition, message) {
             }
         }
         check(nonZero, 'PRT rendered silence');
+
+        const title = readCString(e, e.rp_title(prtCtx));
+        const artist = readCString(e, e.rp_artist(prtCtx));
+        check(title.length > 0, 'PRT title empty');
+        console.log(`   PreTracker: "${title}" by "${artist}"`);
 
         const half = BigInt(Math.floor(prtFrames / 2));
         check(e.rp_seek(prtCtx, half) === 1, 'PRT seek failed');
