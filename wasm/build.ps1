@@ -34,6 +34,7 @@ $exports = @(
     'rp_create', 'rp_destroy', 'rp_load',
     'rp_sample_rate', 'rp_channels', 'rp_frames', 'rp_position', 'rp_is_loaded', 'rp_format',
     'rp_title', 'rp_artist',
+    'rp_subsong_count', 'rp_subsong', 'rp_set_subsong',
     'rp_seek', 'rp_render',
     'malloc', 'free'
 )

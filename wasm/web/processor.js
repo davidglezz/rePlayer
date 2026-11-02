@@ -58,6 +58,14 @@ class RpProcessor extends AudioWorkletProcessor {
             case 'volume':
                 this.volume = message.value;
                 break;
+            case 'subsong':
+                if (this.ctx && this.exports.rp_set_subsong && this.exports.rp_set_subsong(this.ctx, message.index)) {
+                    this.totalFrames = Number(this.exports.rp_frames(this.ctx));
+                    this.playing = false;
+                    this.resetPlayback(0);
+                    this.port.postMessage({ type: 'subsongChanged', index: message.index, frames: this.totalFrames });
+                }
+                break;
             default:
                 break;
         }
@@ -121,6 +129,8 @@ class RpProcessor extends AudioWorkletProcessor {
                 ratio: this.ratio,
                 channels: this.exports.rp_channels(this.ctx),
                 frames: this.totalFrames,
+                subsongCount: this.exports.rp_subsong_count(this.ctx),
+                subsong: this.exports.rp_subsong(this.ctx),
             });
         } catch (error) {
             this.port.postMessage({ type: 'error', message: String(error && error.message ? error.message : error) });

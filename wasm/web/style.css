@@ -17,6 +17,19 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
+select {
+    background: #1a2028;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font: inherit;
+}
+
 html,
 body {
     margin: 0;
@@ -253,6 +266,19 @@ input[type="range"]:disabled {
     justify-content: center;
     gap: 14px;
     margin: 18px 0 14px;
+}
+
+.subsong {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.subsong select {
+    flex: 1;
 }
 
 .row {

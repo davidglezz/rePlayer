@@ -30,9 +30,13 @@ wasm/
   así que el core lo reinicia después de consultar la duración. También expone
   el título y el autor del módulo (`PreSongMetadata`).
 - ABI C mínima: `rp_create`, `rp_load`, `rp_sample_rate`, `rp_channels`,
-  `rp_frames`, `rp_position`, `rp_format`, `rp_title`, `rp_artist`, `rp_seek`,
-  `rp_render`, `rp_destroy`, y `malloc`/`free` para pasar los bytes del archivo.
+  `rp_frames`, `rp_position`, `rp_format`, `rp_title`, `rp_artist`,
+  `rp_subsong_count`, `rp_subsong`, `rp_set_subsong`, `rp_seek`, `rp_render`,
+  `rp_destroy`, y `malloc`/`free` para pasar los bytes del archivo.
   `rp_format` devuelve `1` WAV, `2` FLAC, `3` MP3, `4` PreTracker.
+- Los módulos PreTracker con varios subsongs muestran un selector en la UI; el
+  cambio reinicia el motor y recalcula la duración. Los demás formatos declaran
+  un único subsong.
 - El módulo **no tiene imports** (`wasm32-wasi` en modo reactor): no usa WASI,
   hilos ni el filesystem. `WebAssembly.Module` se envía al `AudioWorklet`, que
   instancia el core en el hilo de audio y va pidiendo bloques con `rp_render`.
@@ -74,6 +78,8 @@ Abre **http://127.0.0.1:8787/**, arrastra un WAV/FLAC/MP3 y dale a play.
   por motor o un proxy que envuelva el `ReplayPlugin` actual.
 - PreTracker no tiene seek nativo: el core reinicia el player y descarta frames
   hasta la posición pedida. Funciona, pero un seek lejano tarda.
+- El cambio de subsong está implementado y probado con módulos de un solo
+  subsong; falta un `.prt` multi-subsong para validar el salto real.
 - El `AudioContext` se intenta crear con la frecuencia del archivo. Si el
   navegador impone otra, el `AudioWorklet` hace **resampling lineal** en tiempo
   real (se muestra `resampling X → Y Hz`).

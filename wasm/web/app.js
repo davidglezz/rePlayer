@@ -13,6 +13,8 @@ const state = {
     engineTitle: '',
     engineArtist: '',
     format: 0,
+    subsongCount: 1,
+    subsong: 0,
     rate: 0,
     channels: 0,
     frames: 0,
@@ -60,6 +62,26 @@ function updatePosition() {
     $('time').textContent = fmtTime(state.position / state.rate);
 }
 
+function updateSubsongUI() {
+    const row = $('subsongRow');
+    const select = $('subsong');
+    if (state.subsongCount > 1) {
+        if (select.options.length !== state.subsongCount) {
+            select.innerHTML = '';
+            for (let i = 0; i < state.subsongCount; i++) {
+                const option = document.createElement('option');
+                option.value = String(i);
+                option.textContent = `Subsong ${i + 1}`;
+                select.appendChild(option);
+            }
+        }
+        select.value = String(state.subsong);
+        row.hidden = false;
+    } else {
+        row.hidden = true;
+    }
+}
+
 function updateTrackInfo() {
     const format = FORMATS[state.format] || 'audio';
     const title = state.engineTitle || state.title || (state.file && state.file.name) || '—';
@@ -69,6 +91,7 @@ function updateTrackInfo() {
     $('format').textContent = format;
     $('duration').textContent = fmtTime(state.duration);
     $('tech').textContent = `${state.frames.toLocaleString()} frames · ${state.rate} Hz`;
+    updateSubsongUI();
 }
 
 function onProcessorMessage(message) {
@@ -79,10 +102,26 @@ function onProcessorMessage(message) {
             $('seek').disabled = false;
             updatePosition();
             updateTransport();
+            if (message.subsongCount)
+                state.subsongCount = message.subsongCount;
+            if (message.subsong !== undefined)
+                state.subsong = message.subsong;
+            updateSubsongUI();
             if (message.ratio && Math.abs(message.ratio - 1) > 1e-6)
                 setStatus(`resampling ${message.sampleRate} → ${message.contextSampleRate} Hz`);
             else
                 setStatus(`${FORMATS[state.format] || 'audio'} listo`);
+            break;
+        case 'subsongChanged':
+            state.subsong = message.index;
+            state.frames = message.frames;
+            state.duration = state.rate ? state.frames / state.rate : 0;
+            state.position = 0;
+            state.playing = false;
+            updateTrackInfo();
+            updatePosition();
+            updateTransport();
+            setStatus(`subsong ${message.index + 1}`);
             break;
         case 'position':
             if (!state.seeking) {
@@ -199,6 +238,8 @@ async function loadFile(file) {
         state.frames = Number(exports.rp_frames(context));
         state.engineTitle = readCString(exports, exports.rp_title(context));
         state.engineArtist = readCString(exports, exports.rp_artist(context));
+        state.subsongCount = exports.rp_subsong_count(context);
+        state.subsong = exports.rp_subsong(context);
         exports.rp_destroy(context);
 
         state.duration = state.rate ? state.frames / state.rate : 0;
@@ -303,6 +344,15 @@ $('seek').onchange = () => {
 
 $('vol').oninput = () => setVolume(Number($('vol').value) / 100);
 $('mute').onclick = () => setVolume(state.volume > 0 ? 0 : (state.lastVolume || 0.8));
+
+$('subsong').onchange = () => {
+    if (!state.node)
+        return;
+    const index = Number($('subsong').value);
+    state.subsong = index;
+    state.node.port.postMessage({ type: 'subsong', index });
+    setStatus(`subsong ${index + 1}`);
+};
 
 ['dragenter', 'dragover'].forEach((type) => {
     document.addEventListener(type, (event) => {

@@ -62,6 +62,8 @@ function readCString(exports, pointer) {
     check(e.rp_sample_rate(ctx) === 44100, 'bad sample rate');
     check(e.rp_channels(ctx) === 2, 'bad channel count');
     check(Number(e.rp_frames(ctx)) === 44100, 'bad frame count');
+    check(e.rp_subsong_count(ctx) === 1, 'bad WAV subsong count');
+    check(e.rp_set_subsong(ctx, 0) === 0, 'WAV should not change subsong');
 
     const block = 4096;
     const outPtr = e.malloc(block * 2 * 4);
@@ -122,6 +124,22 @@ function readCString(exports, pointer) {
         const artist = readCString(e, e.rp_artist(prtCtx));
         check(title.length > 0, 'PRT title empty');
         console.log(`   PreTracker: "${title}" by "${artist}"`);
+
+        const subsongs = e.rp_subsong_count(prtCtx);
+        check(subsongs >= 1, 'bad subsong count');
+        check(e.rp_subsong(prtCtx) === 0, 'bad current subsong');
+        check(e.rp_set_subsong(prtCtx, 0) === 1, 'set subsong 0 failed');
+        check(e.rp_subsong(prtCtx) === 0, 'subsong 0 not applied');
+        if (subsongs > 1) {
+            check(e.rp_set_subsong(prtCtx, 1) === 1, 'set subsong failed');
+            check(e.rp_subsong(prtCtx) === 1, 'subsong not applied');
+            const subFrames = Number(e.rp_frames(prtCtx));
+            check(subFrames > 0, 'bad subsong length');
+            const subRead = e.rp_render(prtCtx, prtOut, block);
+            check(subRead > 0, 'subsong render failed');
+            check(e.rp_set_subsong(prtCtx, 0) === 1, 'restore subsong failed');
+        }
+        console.log(`   subsongs: ${subsongs}`);
 
         const half = BigInt(Math.floor(prtFrames / 2));
         check(e.rp_seek(prtCtx, half) === 1, 'PRT seek failed');

@@ -46,6 +46,8 @@ namespace
         uint32_t channels = 0;
         uint64_t totalFrames = 0;
         uint64_t position = 0;
+        int subsongCount = 1;
+        int subsong = 0;
 
         drwav wav = {};
         drmp3 mp3 = {};
@@ -86,6 +88,8 @@ namespace
         ctx->channels = 0;
         ctx->totalFrames = 0;
         ctx->position = 0;
+        ctx->subsongCount = 1;
+        ctx->subsong = 0;
         ctx->title[0] = '\0';
         ctx->artist[0] = '\0';
     }
@@ -192,7 +196,9 @@ extern "C"
                 {
                     CopyFixedString(ctx->title, sizeof(ctx->title), metadata->song_name, sizeof(metadata->song_name));
                     CopyFixedString(ctx->artist, sizeof(ctx->artist), metadata->author, sizeof(metadata->author));
+                    ctx->subsongCount = metadata->num_subsongs > 0 ? metadata->num_subsongs : 1;
                 }
+                ctx->subsong = 0;
                 return 1;
             }
         }
@@ -242,6 +248,33 @@ extern "C"
     const char* rp_artist(RpContext* ctx)
     {
         return ctx ? ctx->artist : "";
+    }
+
+    int rp_subsong_count(RpContext* ctx)
+    {
+        return ctx ? ctx->subsongCount : 0;
+    }
+
+    int rp_subsong(RpContext* ctx)
+    {
+        return ctx ? ctx->subsong : 0;
+    }
+
+    int rp_set_subsong(RpContext* ctx, int index)
+    {
+        if (!ctx || ctx->format != Format::kPreTracker || index < 0 || index >= ctx->subsongCount)
+            return 0;
+
+        pre_song_set_subsong(ctx->preTracker, index);
+        pre_song_start(ctx->preTracker);
+        // As above, querying the length advances the player.
+        int length = pre_song_get_length(ctx->preTracker);
+        pre_song_start(ctx->preTracker);
+
+        ctx->subsong = index;
+        ctx->totalFrames = length > 0 ? static_cast<uint64_t>(length) : 0;
+        ctx->position = 0;
+        return 1;
     }
 
     int rp_seek(RpContext* ctx, uint64_t frame)
