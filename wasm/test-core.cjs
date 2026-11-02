@@ -149,6 +149,49 @@ function readCString(exports, pointer) {
     } else {
         console.log('(pasa un .prt/.pt como argumento para probar PreTracker)');
     }
+
+    const hivelyPath = process.argv[3];
+    if (hivelyPath) {
+        const hively = fs.readFileSync(hivelyPath);
+        const hCtx = e.rp_create();
+        const hPtr = e.malloc(hively.length);
+        check(hPtr !== 0, 'malloc failed (hively)');
+        new Uint8Array(e.memory.buffer, hPtr, hively.length).set(hively);
+        check(e.rp_load(hCtx, hPtr, hively.length) === 1, 'Hively load failed');
+        e.free(hPtr);
+
+        check(e.rp_format(hCtx) === 5, 'expected Hively');
+        check(e.rp_sample_rate(hCtx) === 48000, 'bad Hively sample rate');
+        check(e.rp_channels(hCtx) === 2, 'bad Hively channels');
+        const hFrames = Number(e.rp_frames(hCtx));
+        check(hFrames > 0, 'bad Hively length');
+        const title = readCString(e, e.rp_title(hCtx));
+
+        const hOut = e.malloc(block * 2 * 4);
+        const hRead = e.rp_render(hCtx, hOut, block);
+        const hSamples = new Float32Array(e.memory.buffer, hOut, block * 2);
+        check(hRead > 0, 'Hively render returned 0');
+        let nonZero = false;
+        for (let i = 0; i < hRead * 2; i++) {
+            if (Math.abs(hSamples[i]) > 0.0001) {
+                nonZero = true;
+                break;
+            }
+        }
+        check(nonZero, 'Hively rendered silence');
+
+        const subsongs = e.rp_subsong_count(hCtx);
+        check(subsongs >= 1, 'bad Hively subsong count');
+        check(e.rp_set_subsong(hCtx, 0) === 1, 'Hively subsong 0 failed');
+
+        const half = BigInt(Math.floor(hFrames / 2));
+        check(e.rp_seek(hCtx, half) === 1, 'Hively seek failed');
+        e.free(hOut);
+        e.rp_destroy(hCtx);
+        console.log(`ok: Hively "${title}" (${hFrames} frames @ 48 kHz, ${subsongs} subsong(s))`);
+    } else {
+        console.log('(pasa un .hvl/.ahx/.thx como tercer argumento para probar Hively)');
+    }
 })().catch((error) => {
     console.error('FAIL:', error.message);
     process.exit(1);

@@ -18,8 +18,8 @@
             <h1>Arrastra un archivo de audio</h1>
             <p>o elige uno desde el disco</p>
             <button class="btn primary" id="pick">Elegir archivo</button>
-            <p class="hint">WAV, FLAC, MP3 o PreTracker (.prt/.pt) · todo se decodifica en local con el core wasm</p>
-            <input type="file" id="file" accept=".wav,.flac,.mp3,.prt,.pt,audio/*" hidden>
+            <p class="hint">WAV, FLAC, MP3, PreTracker (.prt/.pt) o Hively (.hvl/.ahx/.thx) · todo se decodifica en local</p>
+            <input type="file" id="file" accept=".wav,.flac,.mp3,.prt,.pt,.hvl,.ahx,.thx,audio/*" hidden>
         </section>
 
         <section class="panel player" id="player" hidden>
@@ -55,7 +55,7 @@
         </section>
 
         <footer class="footer">
-            <span>WAV · FLAC · MP3 · PreTracker</span>
+            <span>WAV · FLAC · MP3 · PreTracker · Hively</span>
             <span id="tech">cargando core wasm…</span>
         </footer>
     </main>

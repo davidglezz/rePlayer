@@ -34,6 +34,10 @@ const uint16 period_tab[61] =
 const int32 stereopan_left[5]  = { 128,  96,  64,  32,   0 };
 const int32 stereopan_right[5] = { 128, 160, 193, 225, 255 };
 
+int8 waves[WAVES_SIZE];
+uint32 panning_left[256];
+uint32 panning_right[256];
+
 const int16 filter_thing[2790] =
 {
 -1161, -4413, -7161, -13094, 635, 13255, 2189, 6401,

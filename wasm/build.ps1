@@ -17,6 +17,8 @@ if (-not (Get-Command $Zig -ErrorAction SilentlyContinue) -and -not (Test-Path $
 $src = Join-Path $PSScriptRoot 'core\core.cpp'
 $inc = Join-Path $PSScriptRoot '..\source\3rdParty\dr_libs'
 $preTracker = Join-Path $PSScriptRoot '..\source\Replays\PreTracker\pretracker'
+$hively = Join-Path $PSScriptRoot '..\source\Replays\Hively\hvl'
+$compat = Join-Path $PSScriptRoot 'core\hively_compat.h'
 $outDir = Split-Path -Parent $Out
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
@@ -27,7 +29,10 @@ $sources = @(
     (Join-Path $preTracker 'pretracker_sequencer.c'),
     (Join-Path $preTracker 'pretracker_mixer.c'),
     (Join-Path $preTracker 'pretracker_tables.c'),
-    (Join-Path $preTracker 'pretracker_wavegen.c')
+    (Join-Path $preTracker 'pretracker_wavegen.c'),
+    (Join-Path $hively 'hvl_replay.c'),
+    (Join-Path $hively 'hvl_tables.c'),
+    (Join-Path $PSScriptRoot 'core\hively_stub.c')
 )
 
 $exports = @(
@@ -47,7 +52,11 @@ $arguments = @(
     '-fno-exceptions',
     '-fno-rtti',
     '-mexec-model=reactor',
+    '-Dprintf=wasm_printf',
+    '-ffunction-sections',
+    '-include', $compat,
     "-I$inc",
+    '-Wl,--gc-sections',
     '-Wl,--strip-all',
     '-Wl,-z,stack-size=1048576',
     '-Wl,--initial-memory=4194304',

@@ -20,6 +20,7 @@
 extern "C"
 {
 #include "../../source/Replays/PreTracker/pretracker/pretracker.h"
+#include "../../source/Replays/Hively/hvl/hvl_replay.h"
 }
 
 #include <cstdint>
@@ -34,7 +35,8 @@ namespace
         kWav,
         kFlac,
         kMp3,
-        kPreTracker
+        kPreTracker,
+        kHively
     };
 
     struct RpContext
@@ -53,6 +55,7 @@ namespace
         drmp3 mp3 = {};
         drflac* flac = nullptr;
         PreSong* preTracker = nullptr;
+        hvl_tune* hively = nullptr;
 
         char title[64] = {};
         char artist[64] = {};
@@ -78,6 +81,12 @@ namespace
             if (ctx->preTracker)
                 pre_song_destroy(ctx->preTracker);
             ctx->preTracker = nullptr;
+        }
+        else if (ctx->format == Format::kHively)
+        {
+            if (ctx->hively)
+                hvl_FreeTune(ctx->hively);
+            ctx->hively = nullptr;
         }
 
         ctx->format = Format::kNone;
@@ -109,12 +118,19 @@ namespace
         memcpy(destination, source, length);
         destination[length] = '\0';
     }
+
+    bool s_hivelyInitialized = false;
 }
 
 extern "C"
 {
     RpContext* rp_create()
     {
+        if (!s_hivelyInitialized)
+        {
+            hvl_InitReplayer();
+            s_hivelyInitialized = true;
+        }
         return static_cast<RpContext*>(calloc(1, sizeof(RpContext)));
     }
 
@@ -161,6 +177,27 @@ extern "C"
                 ctx->sampleRate = ctx->flac->sampleRate;
                 ctx->channels = ctx->flac->channels;
                 ctx->totalFrames = ctx->flac->totalPCMFrameCount;
+                return 1;
+            }
+        }
+
+        // Hively / AHX: THX or HVL magic.
+        if (size >= 4
+            && ((ctx->data[0] == 'T' && ctx->data[1] == 'H' && ctx->data[2] == 'X' && ctx->data[3] < 3)
+                || (ctx->data[0] == 'H' && ctx->data[1] == 'V' && ctx->data[2] == 'L' && ctx->data[3] < 2)))
+        {
+            ctx->hively = hvl_ParseTune(ctx->data, size, 48000, 2,
+                [](size_t allocSize) { return calloc(1, allocSize); },
+                [](void* ptr) { free(ptr); });
+            if (ctx->hively)
+            {
+                ctx->format = Format::kHively;
+                ctx->sampleRate = 48000;
+                ctx->channels = 2;
+                ctx->totalFrames = static_cast<uint64_t>(hvl_GetDuration(ctx->hively)) * 48000 / 1000;
+                ctx->subsongCount = ctx->hively->ht_SubsongNr > 0 ? ctx->hively->ht_SubsongNr : 1;
+                ctx->subsong = 0;
+                CopyFixedString(ctx->title, sizeof(ctx->title), ctx->hively->ht_Name, sizeof(ctx->hively->ht_Name));
                 return 1;
             }
         }
@@ -234,7 +271,7 @@ extern "C"
         return ctx && ctx->format != Format::kNone;
     }
 
-    // 0: none, 1: WAV, 2: FLAC, 3: MP3, 4: PreTracker.
+    // 0: none, 1: WAV, 2: FLAC, 3: MP3, 4: PreTracker, 5: Hively.
     int rp_format(RpContext* ctx)
     {
         return ctx ? static_cast<int>(ctx->format) : 0;
@@ -262,7 +299,21 @@ extern "C"
 
     int rp_set_subsong(RpContext* ctx, int index)
     {
-        if (!ctx || ctx->format != Format::kPreTracker || index < 0 || index >= ctx->subsongCount)
+        if (!ctx || index < 0 || index >= ctx->subsongCount)
+            return 0;
+
+        if (ctx->format == Format::kHively)
+        {
+            if (!hvl_InitSubsong(ctx->hively, index))
+                return 0;
+            hvl_Seek(ctx->hively, 0);
+            ctx->subsong = index;
+            ctx->totalFrames = static_cast<uint64_t>(hvl_GetDuration(ctx->hively)) * 48000 / 1000;
+            ctx->position = 0;
+            return 1;
+        }
+
+        if (ctx->format != Format::kPreTracker)
             return 0;
 
         pre_song_set_subsong(ctx->preTracker, index);
@@ -322,6 +373,13 @@ extern "C"
             ctx->position = frame - remaining;
             return 1;
         }
+        case Format::kHively:
+        {
+            uint32_t ms = static_cast<uint32_t>(frame * 1000 / 48000);
+            uint32_t actual = hvl_Seek(ctx->hively, ms);
+            ctx->position = static_cast<uint64_t>(actual) * 48000 / 1000;
+            return 1;
+        }
         default:
             break;
         }
@@ -366,6 +424,28 @@ extern "C"
             int got = pre_song_decode(ctx->preTracker, ctx->scratch, static_cast<int>(frames));
             read = got > 0 ? static_cast<uint64_t>(got) : 0;
             break;
+        }
+        case Format::kHively:
+        {
+            uint64_t remaining = ctx->totalFrames > ctx->position ? ctx->totalFrames - ctx->position : 0;
+            uint32_t count = remaining < frames ? static_cast<uint32_t>(remaining) : frames;
+            if (count > 0)
+            {
+                auto* pcm = reinterpret_cast<int16_t*>(ctx->scratch);
+                hvl_Decode(ctx->hively, pcm, count);
+                for (uint32_t i = 0; i < count; i++)
+                {
+                    out[i * 2 + 0] = pcm[i * 2 + 0] / 32767.0f;
+                    out[i * 2 + 1] = pcm[i * 2 + 1] / 32767.0f;
+                }
+            }
+            for (uint32_t i = count; i < frames; i++)
+            {
+                out[i * 2 + 0] = 0.0f;
+                out[i * 2 + 1] = 0.0f;
+            }
+            ctx->position += count;
+            return count;
         }
         default:
             return 0;

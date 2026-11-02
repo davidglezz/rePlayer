@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 
-const FORMATS = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker' };
+const FORMATS = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively' };
 
 const state = {
     module: null,
