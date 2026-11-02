@@ -124,6 +124,38 @@ describe.skipIf(!hivelyPath)('Hively engine', () => {
         core.free(output);
         core.rp_destroy(context);
     });
+
+    it('renders identically regardless of the block size', async () => {
+        const bytes = readWasmBytes(hivelyPath!);
+        const total = 8192;
+
+        async function renderWith(block: number): Promise<Float32Array> {
+            const core = await instantiateWasm('core.wasm');
+            const context = load(core, bytes);
+            const output = core.malloc(block * 2 * 4);
+            const result = new Float32Array(total * 2);
+            let done = 0;
+            while (done < total) {
+                const want = Math.min(block, total - done);
+                const got = core.rp_render(context, output, want);
+                if (got <= 0)
+                    break;
+                const view = new Float32Array(core.memory.buffer, output, got * 2);
+                result.set(view, done * 2);
+                done += got;
+            }
+            core.free(output);
+            core.rp_destroy(context);
+            expect(done).toBe(total);
+            return result;
+        }
+
+        // The old code advanced one 50 Hz tick per rp_render call, so the
+        // tempo depended on the AudioWorklet block size (128 frames).
+        const small = await renderWith(128);
+        const large = await renderWith(4096);
+        expect(small).toEqual(large);
+    });
 });
 
 function readWasmBytes(file: string): Uint8Array {

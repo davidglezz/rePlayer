@@ -102,6 +102,9 @@ namespace
 #endif
 #if RP_ENGINE_HIVELY
         hvl_tune* hively = nullptr;
+        int16_t* hivelyTick = nullptr;
+        uint32_t hivelyTickFrames = 0;
+        uint32_t hivelyTickPos = 0;
 #endif
 
         char title[64] = {};
@@ -138,12 +141,13 @@ namespace
         }
 #endif
 #if RP_ENGINE_HIVELY
-        if (ctx->format == Format::kHively)
-        {
-            if (ctx->hively)
-                hvl_FreeTune(ctx->hively);
-            ctx->hively = nullptr;
-        }
+        if (ctx->hively)
+            hvl_FreeTune(ctx->hively);
+        ctx->hively = nullptr;
+        free(ctx->hivelyTick);
+        ctx->hivelyTick = nullptr;
+        ctx->hivelyTickFrames = 0;
+        ctx->hivelyTickPos = 0;
 #endif
 
         ctx->format = Format::kNone;
@@ -293,6 +297,29 @@ extern "C"
                 ctx->totalFrames = static_cast<uint64_t>(hvl_GetDuration(ctx->hively)) * 48000 / 1000;
                 ctx->subsongCount = ctx->hively->ht_SubsongNr > 0 ? ctx->hively->ht_SubsongNr : 1;
                 ctx->subsong = 0;
+
+                // hvl_Decode advances one 50 Hz tick regardless of how many
+                // samples it is given, so buffer whole ticks instead of
+                // handing it the render block size.
+                uint32_t speed = ctx->hively->ht_SpeedMultiplier;
+                if (speed == 0)
+                    speed = 1;
+                ctx->hivelyTickFrames = 48000u / 50u / speed;
+                if (ctx->hivelyTickFrames == 0)
+                    ctx->hivelyTickFrames = 1;
+                ctx->hivelyTick = static_cast<int16_t*>(calloc(ctx->hivelyTickFrames * 2, sizeof(int16_t)));
+                ctx->hivelyTickPos = ctx->hivelyTickFrames;
+                if (!ctx->hivelyTick)
+                {
+                    hvl_FreeTune(ctx->hively);
+                    ctx->hively = nullptr;
+                    ctx->format = Format::kNone;
+                    return 0;
+                }
+
+                // hvl_GetDuration plays the tune to its end; rewind it.
+                hvl_InitSubsong(ctx->hively, 0);
+
                 CopyFixedString(ctx->title, sizeof(ctx->title), ctx->hively->ht_Name, sizeof(ctx->hively->ht_Name));
                 return 1;
             }
@@ -378,10 +405,11 @@ extern "C"
         {
             if (!hvl_InitSubsong(ctx->hively, index))
                 return 0;
-            hvl_Seek(ctx->hively, 0);
             ctx->subsong = index;
             ctx->totalFrames = static_cast<uint64_t>(hvl_GetDuration(ctx->hively)) * 48000 / 1000;
+            hvl_InitSubsong(ctx->hively, index);
             ctx->position = 0;
+            ctx->hivelyTickPos = ctx->hivelyTickFrames;
             return 1;
         }
 #endif
@@ -464,6 +492,7 @@ extern "C"
             uint32_t ms = static_cast<uint32_t>(frame * 1000 / 48000);
             uint32_t actual = hvl_Seek(ctx->hively, ms);
             ctx->position = static_cast<uint64_t>(actual) * 48000 / 1000;
+            ctx->hivelyTickPos = ctx->hivelyTickFrames;
             return 1;
         }
 #endif
@@ -525,15 +554,25 @@ extern "C"
         {
             uint64_t remaining = ctx->totalFrames > ctx->position ? ctx->totalFrames - ctx->position : 0;
             uint32_t count = remaining < frames ? static_cast<uint32_t>(remaining) : frames;
-            if (count > 0)
+            uint32_t done = 0;
+            while (done < count)
             {
-                auto* pcm = reinterpret_cast<int16_t*>(ctx->scratch);
-                hvl_Decode(ctx->hively, pcm, count);
-                for (uint32_t i = 0; i < count; i++)
+                if (ctx->hivelyTickPos >= ctx->hivelyTickFrames)
                 {
-                    out[i * 2 + 0] = pcm[i * 2 + 0] / 32767.0f;
-                    out[i * 2 + 1] = pcm[i * 2 + 1] / 32767.0f;
+                    hvl_Decode(ctx->hively, ctx->hivelyTick, ctx->hivelyTickFrames);
+                    ctx->hivelyTickPos = 0;
                 }
+                uint32_t available = ctx->hivelyTickFrames - ctx->hivelyTickPos;
+                uint32_t chunk = count - done < available ? count - done : available;
+                for (uint32_t i = 0; i < chunk; i++)
+                {
+                    uint32_t src = (ctx->hivelyTickPos + i) * 2;
+                    uint32_t dst = (done + i) * 2;
+                    out[dst + 0] = ctx->hivelyTick[src + 0] / 32767.0f;
+                    out[dst + 1] = ctx->hivelyTick[src + 1] / 32767.0f;
+                }
+                done += chunk;
+                ctx->hivelyTickPos += chunk;
             }
             for (uint32_t i = count; i < frames; i++)
             {
