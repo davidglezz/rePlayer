@@ -9,13 +9,15 @@ app Win32, DirectX, ImGui, las DLLs de los 62 motores ni la base de datos.
 ```
 wasm/
   core/core.cpp     # WAV/FLAC/MP3/PreTracker/Hively + ABI C
-  build.ps1         # compila core.wasm con zig (clang + wasm-ld)
+  build.ps1         # compila los módulos wasm con zig (clang + wasm-ld)
   web/index.html    # UI
   web/app.js        # carga de archivos, AudioContext, controles
   web/processor.js  # AudioWorklet: renderiza PCM desde el wasm
-  web/core.wasm     # artefacto compilado (203 KB, sin imports)
+  web/engines/*.wasm# módulos por motor (wav, flac, mp3, pretracker, hively)
+  web/core.wasm     # módulo "all" de fallback (203 KB, sin imports)
   server.mjs        # servidor estático local
   test-core.cjs     # test de humo del core en Node
+  test-engines.cjs  # test de los módulos por motor
   test-processor.cjs# test del AudioWorklet (directo + resampling)
 ```
 
@@ -47,6 +49,24 @@ wasm/
   hilos ni el filesystem. `WebAssembly.Module` se envía al `AudioWorklet`, que
   instancia el core en el hilo de audio y va pidiendo bloques con `rp_render`.
 
+## Carga bajo demanda
+
+La UI elige el motor por la extensión del archivo y carga **solo** ese `.wasm`:
+
+| Módulo | Tamaño | Extensiones |
+|---|---:|---|
+| `engines/wav.wasm` | ~41 KB | `.wav` |
+| `engines/flac.wasm` | ~66 KB | `.flac` |
+| `engines/mp3.wasm` | ~40 KB | `.mp2`, `.mp3`, `.aix` |
+| `engines/pretracker.wasm` | ~29 KB | `.prt`, `.pt` |
+| `engines/hively.wasm` | ~38 KB | `.hvl`, `.ahx`, `.thx` |
+| `core.wasm` (all) | ~203 KB | fallback |
+
+Si la extensión no se reconoce, o el módulo específico rechaza el archivo, se
+carga `core.wasm` (que incluye los 5 decoders) y se reintenta. Los módulos se
+cachean en memoria (`engineCache`), así que cambiar entre dos `.wav` no vuelve a
+descargar nada.
+
 ## Compilar
 
 Necesitas [Zig](https://ziglang.org/download/) (probado con 0.17.0; incluye
@@ -56,7 +76,8 @@ clang y wasm-ld, no hace falta Emscripten ni Python):
 .\wasm\build.ps1 -Zig C:\ruta\a\zig.exe
 ```
 
-Si `zig` está en el `PATH`, basta con `.\wasm\build.ps1`.
+Si `zig` está en el `PATH`, basta con `.\wasm\build.ps1`. Para compilar solo
+algunos módulos: `.\wasm\build.ps1 -Only wav,hively,all`.
 
 Test rápido del core (genera un WAV en memoria, sin navegador):
 
@@ -67,6 +88,9 @@ node .\wasm\test-core.cjs C:\ruta\a\modulo.prt C:\ruta\a\modulo.hvl
 
 # AudioWorklet: render directo y resampling 44.1k -> 48k
 node .\wasm\test-processor.cjs
+
+# módulos por motor (y aislamiento de formatos)
+node .\wasm\test-engines.cjs C:\ruta\a\modulo.prt C:\ruta\a\modulo.hvl
 ```
 
 ## Ejecutar
@@ -82,6 +106,8 @@ Abre **http://127.0.0.1:8787/**, arrastra un WAV/FLAC/MP3 y dale a play.
 
 - 5 motores (WAV/FLAC/MP3/PreTracker/Hively). El resto de los 62 necesitaría
   una ABI C por motor o un proxy que envuelva el `ReplayPlugin` actual.
+- `core.wasm` incluye los 5 decoders y se usa como fallback; para producción se
+  podría eliminar y dejar solo los módulos por motor.
 - PreTracker no tiene seek nativo: el core reinicia el player y descarta frames
   hasta la posición pedida. Funciona, pero un seek lejano tarda.
 - El cambio de subsong está implementado y probado con módulos de un solo

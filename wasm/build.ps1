@@ -1,6 +1,7 @@
 param(
     [string]$Zig = $env:ZIG,
-    [string]$Out = (Join-Path $PSScriptRoot 'web\core.wasm')
+    [string]$OutDir = (Join-Path $PSScriptRoot 'web'),
+    [string[]]$Only = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,26 +15,13 @@ if (-not (Get-Command $Zig -ErrorAction SilentlyContinue) -and -not (Test-Path $
     throw "No se encontró zig. Descarga https://ziglang.org/download/ y pasa -Zig <ruta a zig.exe> (o define ZIG)."
 }
 
-$src = Join-Path $PSScriptRoot 'core\core.cpp'
+$core = Join-Path $PSScriptRoot 'core\core.cpp'
 $inc = Join-Path $PSScriptRoot '..\source\3rdParty\dr_libs'
 $preTracker = Join-Path $PSScriptRoot '..\source\Replays\PreTracker\pretracker'
 $hively = Join-Path $PSScriptRoot '..\source\Replays\Hively\hvl'
 $compat = Join-Path $PSScriptRoot 'core\hively_compat.h'
-$outDir = Split-Path -Parent $Out
-New-Item -ItemType Directory -Force $outDir | Out-Null
-
-$sources = @(
-    $src,
-    (Join-Path $preTracker 'pretracker.c'),
-    (Join-Path $preTracker 'pretracker_parse.c'),
-    (Join-Path $preTracker 'pretracker_sequencer.c'),
-    (Join-Path $preTracker 'pretracker_mixer.c'),
-    (Join-Path $preTracker 'pretracker_tables.c'),
-    (Join-Path $preTracker 'pretracker_wavegen.c'),
-    (Join-Path $hively 'hvl_replay.c'),
-    (Join-Path $hively 'hvl_tables.c'),
-    (Join-Path $PSScriptRoot 'core\hively_stub.c')
-)
+$stub = Join-Path $PSScriptRoot 'core\hively_stub.c'
+New-Item -ItemType Directory -Force $OutDir | Out-Null
 
 $exports = @(
     'rp_create', 'rp_destroy', 'rp_load',
@@ -43,8 +31,24 @@ $exports = @(
     'rp_seek', 'rp_render',
     'malloc', 'free'
 )
+$exportArgs = $exports | ForEach-Object { "-Wl,--export=$_" }
 
-$arguments = @(
+$preTrackerSources = @(
+    (Join-Path $preTracker 'pretracker.c'),
+    (Join-Path $preTracker 'pretracker_parse.c'),
+    (Join-Path $preTracker 'pretracker_sequencer.c'),
+    (Join-Path $preTracker 'pretracker_mixer.c'),
+    (Join-Path $preTracker 'pretracker_tables.c'),
+    (Join-Path $preTracker 'pretracker_wavegen.c')
+)
+
+$hivelySources = @(
+    (Join-Path $hively 'hvl_replay.c'),
+    (Join-Path $hively 'hvl_tables.c'),
+    $stub
+)
+
+$common = @(
     'c++',
     '-target', 'wasm32-wasi',
     '-O3',
@@ -52,9 +56,7 @@ $arguments = @(
     '-fno-exceptions',
     '-fno-rtti',
     '-mexec-model=reactor',
-    '-Dprintf=wasm_printf',
     '-ffunction-sections',
-    '-include', $compat,
     "-I$inc",
     '-Wl,--gc-sections',
     '-Wl,--strip-all',
@@ -62,20 +64,42 @@ $arguments = @(
     '-Wl,--initial-memory=4194304',
     '-Wl,--max-memory=1073741824'
 )
-foreach ($e in $exports) { $arguments += "-Wl,--export=$e" }
-$arguments += @('-o', $Out) + $sources + @('-lm')
+
+$engines = @(
+    @{ Name = 'wav'; Defines = @('-DRP_ENGINE_WAV=1'); Sources = @(); Hively = $false },
+    @{ Name = 'flac'; Defines = @('-DRP_ENGINE_FLAC=1'); Sources = @(); Hively = $false },
+    @{ Name = 'mp3'; Defines = @('-DRP_ENGINE_MP3=1'); Sources = @(); Hively = $false },
+    @{ Name = 'pretracker'; Defines = @('-DRP_ENGINE_PRETRACKER=1'); Sources = $preTrackerSources; Hively = $false },
+    @{ Name = 'hively'; Defines = @('-DRP_ENGINE_HIVELY=1'); Sources = $hivelySources; Hively = $true },
+    @{ Name = 'all'; Defines = @('-DRP_ENGINE_ALL=1'); Sources = $preTrackerSources + $hivelySources; Hively = $true }
+)
 
 Write-Host "zig  : $Zig"
-Write-Host "src  : $src"
-Write-Host "out  : $Out"
-& $Zig @arguments
-if ($LASTEXITCODE -ne 0) { throw "La compilación falló con código $LASTEXITCODE" }
+Write-Host "core : $core"
 
-$size = (Get-Item $Out).Length
-Write-Host ("OK -> {0} ({1:N1} KB)" -f $Out, ($size / 1KB)) -ForegroundColor Green
+foreach ($engine in $engines) {
+    if ($Only.Count -gt 0 -and $Only -notcontains $engine.Name)
+    {
+        continue
+    }
 
-$node = Get-Command node -ErrorAction SilentlyContinue
-if ($node) {
-    $js = "const fs=require('fs');const m=new WebAssembly.Module(fs.readFileSync(process.argv[1]));console.log('imports:',JSON.stringify(WebAssembly.Module.imports(m)));console.log('exports:',WebAssembly.Module.exports(m).map(e=>e.name).join(', '));"
-    & $node.Source -e $js $Out
+    $out = if ($engine.Name -eq 'all') { Join-Path $OutDir 'core.wasm' } else { Join-Path $OutDir "engines\$($engine.Name).wasm" }
+    New-Item -ItemType Directory -Force (Split-Path -Parent $out) | Out-Null
+
+    $arguments = $common + $exportArgs + $engine.Defines
+    if ($engine.Hively)
+    {
+        $arguments += @('-Dprintf=wasm_printf', '-include', $compat)
+    }
+    $arguments += @('-o', $out, $core) + $engine.Sources + @('-lm')
+
+    Write-Host ("== {0} ==" -f $engine.Name)
+    & $Zig @arguments
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw "La compilación de $($engine.Name) falló con código $LASTEXITCODE"
+    }
+
+    $size = (Get-Item $out).Length
+    Write-Host ("OK -> {0} ({1:N1} KB)" -f $out, ($size / 1KB)) -ForegroundColor Green
 }

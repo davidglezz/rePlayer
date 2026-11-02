@@ -2,9 +2,20 @@ const $ = (id) => document.getElementById(id);
 
 const FORMATS = { 1: 'WAV', 2: 'FLAC', 3: 'MP3', 4: 'PreTracker', 5: 'Hively' };
 
+const ENGINES = [
+    { name: 'wav', exts: ['wav'], path: 'engines/wav.wasm' },
+    { name: 'flac', exts: ['flac'], path: 'engines/flac.wasm' },
+    { name: 'mp3', exts: ['mp2', 'mp3', 'aix'], path: 'engines/mp3.wasm' },
+    { name: 'pretracker', exts: ['prt', 'pt'], path: 'engines/pretracker.wasm' },
+    { name: 'hively', exts: ['hvl', 'ahx', 'thx'], path: 'engines/hively.wasm' },
+];
+const ALL_ENGINE = { name: 'all', path: 'core.wasm' };
+const engineCache = new Map();
+
 const state = {
     module: null,
     wasmBytes: null,
+    engineName: '',
     audioContext: null,
     node: null,
     file: null,
@@ -25,6 +36,58 @@ const state = {
     lastVolume: 0.8,
     seeking: false,
 };
+
+function engineForFile(file) {
+    const extension = (file.name.split('.').pop() || '').toLowerCase();
+    return ENGINES.find((engine) => engine.exts.includes(extension)) || ALL_ENGINE;
+}
+
+async function loadEngine(engine) {
+    if (engineCache.has(engine.path))
+        return engineCache.get(engine.path);
+    const response = await fetch(engine.path, { cache: 'no-store' });
+    if (!response.ok)
+        throw new Error(`no se pudo cargar ${engine.path} (${response.status})`);
+    const bytes = await response.arrayBuffer();
+    const module = await WebAssembly.compile(bytes);
+    const record = { module, bytes };
+    engineCache.set(engine.path, record);
+    return record;
+}
+
+async function readMetadata(module, buffer) {
+    const { instance } = await WebAssembly.instantiate(module, {});
+    const exports = instance.exports;
+    const context = exports.rp_create();
+    if (!context)
+        return null;
+
+    const pointer = exports.malloc(buffer.byteLength);
+    if (!pointer) {
+        exports.rp_destroy(context);
+        return null;
+    }
+    new Uint8Array(exports.memory.buffer, pointer, buffer.byteLength).set(new Uint8Array(buffer));
+    const loaded = exports.rp_load(context, pointer, buffer.byteLength);
+    exports.free(pointer);
+    if (!loaded) {
+        exports.rp_destroy(context);
+        return null;
+    }
+
+    const info = {
+        format: exports.rp_format(context),
+        rate: exports.rp_sample_rate(context),
+        channels: exports.rp_channels(context),
+        frames: Number(exports.rp_frames(context)),
+        title: readCString(exports, exports.rp_title(context)),
+        artist: readCString(exports, exports.rp_artist(context)),
+        subsongCount: exports.rp_subsong_count(context),
+        subsong: exports.rp_subsong(context),
+    };
+    exports.rp_destroy(context);
+    return info;
+}
 
 function readCString(exports, pointer) {
     if (!pointer)
@@ -90,7 +153,7 @@ function updateTrackInfo() {
     $('meta').textContent = `${artist}${format} · ${(state.rate / 1000).toFixed(1)} kHz · ${state.channels} ${state.channels === 1 ? 'canal' : 'canales'} · ${fmtTime(state.duration)}`;
     $('format').textContent = format;
     $('duration').textContent = fmtTime(state.duration);
-    $('tech').textContent = `${state.frames.toLocaleString()} frames · ${state.rate} Hz`;
+    $('tech').textContent = `${state.engineName || 'wasm'} · ${state.frames.toLocaleString()} frames · ${state.rate} Hz`;
     updateSubsongUI();
 }
 
@@ -201,47 +264,46 @@ async function startAudio() {
 }
 
 async function loadFile(file) {
-    if (!state.module) {
-        setStatus('el core wasm aún no está listo', true);
-        return;
-    }
-
     setStatus('cargando…');
 
     try {
         const buffer = await file.arrayBuffer();
+        let engine = engineForFile(file);
+        let record = null;
+        let info = null;
 
-        // Metadata pass: a short-lived instance on the main thread.
-        const { instance } = await WebAssembly.instantiate(state.module, {});
-        const exports = instance.exports;
-        const context = exports.rp_create();
-        if (!context)
-            throw new Error('no se pudo crear el contexto del decodificador');
-
-        const pointer = exports.malloc(buffer.byteLength);
-        if (!pointer) {
-            exports.rp_destroy(context);
-            throw new Error('sin memoria para cargar el archivo');
+        try {
+            setStatus(`cargando motor ${engine.name}…`);
+            record = await loadEngine(engine);
+            info = await readMetadata(record.module, buffer);
+        } catch (error) {
+            if (engine === ALL_ENGINE)
+                throw error;
         }
-        new Uint8Array(exports.memory.buffer, pointer, buffer.byteLength).set(new Uint8Array(buffer));
-        const loaded = exports.rp_load(context, pointer, buffer.byteLength);
-        exports.free(pointer);
 
-        if (!loaded) {
-            exports.rp_destroy(context);
+        // Unknown extension or a wrong/partial per-engine module: fall back to
+        // the all-in-one module, which probes every decoder.
+        if (!info && engine !== ALL_ENGINE) {
+            setStatus('probando con el motor completo…');
+            engine = ALL_ENGINE;
+            record = await loadEngine(engine);
+            info = await readMetadata(record.module, buffer);
+        }
+
+        if (!info)
             throw new Error('formato no soportado o archivo corrupto');
-        }
 
-        state.format = exports.rp_format(context);
-        state.rate = exports.rp_sample_rate(context);
-        state.channels = exports.rp_channels(context);
-        state.frames = Number(exports.rp_frames(context));
-        state.engineTitle = readCString(exports, exports.rp_title(context));
-        state.engineArtist = readCString(exports, exports.rp_artist(context));
-        state.subsongCount = exports.rp_subsong_count(context);
-        state.subsong = exports.rp_subsong(context);
-        exports.rp_destroy(context);
-
+        state.module = record.module;
+        state.wasmBytes = record.bytes;
+        state.engineName = engine.name;
+        state.format = info.format;
+        state.rate = info.rate;
+        state.channels = info.channels;
+        state.frames = info.frames;
+        state.engineTitle = info.title;
+        state.engineArtist = info.artist;
+        state.subsongCount = info.subsongCount;
+        state.subsong = info.subsong;
         state.duration = state.rate ? state.frames / state.rate : 0;
         state.position = 0;
         state.playing = false;
@@ -389,18 +451,7 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-(async function init() {
-    try {
-        const response = await fetch('core.wasm');
-        if (!response.ok)
-            throw new Error(`no se pudo cargar core.wasm (${response.status})`);
-        state.wasmBytes = await response.arrayBuffer();
-        state.module = await WebAssembly.compile(state.wasmBytes);
-        $('tech').textContent = 'core wasm listo';
-        setStatus('listo');
-    } catch (error) {
-        $('tech').textContent = 'error';
-        setStatus(String(error && error.message ? error.message : error), true);
-        $('drop').classList.add('error');
-    }
+(function init() {
+    $('tech').textContent = 'motores bajo demanda';
+    setStatus('listo');
 })();

@@ -1,27 +1,64 @@
 // rePlayer wasm core
 //
-// Headless decoder with a plain C ABI. It decodes WAV (dr_wav), FLAC (dr_flac)
-// and MP3 (dr_mp3) from an in-memory buffer and renders interleaved stereo
-// float32 PCM. No filesystem, no threads, no WASI I/O: only malloc/free and
-// memcpy are used, which keeps the module import-free for the browser.
+// Headless decoder with a plain C ABI. Each build enables one or more engines
+// (WAV/FLAC/MP3/PreTracker/Hively) and renders interleaved stereo float32 PCM
+// from an in-memory buffer. No filesystem, no threads, no WASI I/O: only
+// malloc/free and memcpy are used, which keeps the modules import-free.
 
+#if defined(RP_ENGINE_ALL)
+#define RP_ENGINE_WAV 1
+#define RP_ENGINE_FLAC 1
+#define RP_ENGINE_MP3 1
+#define RP_ENGINE_PRETRACKER 1
+#define RP_ENGINE_HIVELY 1
+#endif
+#ifndef RP_ENGINE_WAV
+#define RP_ENGINE_WAV 0
+#endif
+#ifndef RP_ENGINE_FLAC
+#define RP_ENGINE_FLAC 0
+#endif
+#ifndef RP_ENGINE_MP3
+#define RP_ENGINE_MP3 0
+#endif
+#ifndef RP_ENGINE_PRETRACKER
+#define RP_ENGINE_PRETRACKER 0
+#endif
+#ifndef RP_ENGINE_HIVELY
+#define RP_ENGINE_HIVELY 0
+#endif
+
+#if RP_ENGINE_WAV
 #define DR_WAV_NO_STDIO
-#define DR_FLAC_NO_STDIO
-#define DR_MP3_NO_STDIO
-
 #define DR_WAV_IMPLEMENTATION
-#define DR_FLAC_IMPLEMENTATION
-#define DR_MP3_IMPLEMENTATION
-
 #include "../../source/3rdParty/dr_libs/dr_wav.h"
-#include "../../source/3rdParty/dr_libs/dr_flac.h"
-#include "../../source/3rdParty/dr_libs/dr_mp3.h"
+#endif
 
+#if RP_ENGINE_FLAC
+#define DR_FLAC_NO_STDIO
+#define DR_FLAC_IMPLEMENTATION
+#include "../../source/3rdParty/dr_libs/dr_flac.h"
+#endif
+
+#if RP_ENGINE_MP3
+#define DR_MP3_NO_STDIO
+#define DR_MP3_IMPLEMENTATION
+#include "../../source/3rdParty/dr_libs/dr_mp3.h"
+#endif
+
+#if RP_ENGINE_PRETRACKER
 extern "C"
 {
 #include "../../source/Replays/PreTracker/pretracker/pretracker.h"
+}
+#endif
+
+#if RP_ENGINE_HIVELY
+extern "C"
+{
 #include "../../source/Replays/Hively/hvl/hvl_replay.h"
 }
+#endif
 
 #include <cstdint>
 #include <cstdlib>
@@ -51,11 +88,21 @@ namespace
         int subsongCount = 1;
         int subsong = 0;
 
+#if RP_ENGINE_WAV
         drwav wav = {};
-        drmp3 mp3 = {};
+#endif
+#if RP_ENGINE_FLAC
         drflac* flac = nullptr;
+#endif
+#if RP_ENGINE_MP3
+        drmp3 mp3 = {};
+#endif
+#if RP_ENGINE_PRETRACKER
         PreSong* preTracker = nullptr;
+#endif
+#if RP_ENGINE_HIVELY
         hvl_tune* hively = nullptr;
+#endif
 
         char title[64] = {};
         char artist[64] = {};
@@ -66,28 +113,38 @@ namespace
 
     void CloseDecoder(RpContext* ctx)
     {
+#if RP_ENGINE_WAV
         if (ctx->format == Format::kWav)
             drwav_uninit(&ctx->wav);
-        else if (ctx->format == Format::kFlac)
+#endif
+#if RP_ENGINE_FLAC
+        if (ctx->format == Format::kFlac)
         {
             if (ctx->flac)
                 drflac_close(ctx->flac);
             ctx->flac = nullptr;
         }
-        else if (ctx->format == Format::kMp3)
+#endif
+#if RP_ENGINE_MP3
+        if (ctx->format == Format::kMp3)
             drmp3_uninit(&ctx->mp3);
-        else if (ctx->format == Format::kPreTracker)
+#endif
+#if RP_ENGINE_PRETRACKER
+        if (ctx->format == Format::kPreTracker)
         {
             if (ctx->preTracker)
                 pre_song_destroy(ctx->preTracker);
             ctx->preTracker = nullptr;
         }
-        else if (ctx->format == Format::kHively)
+#endif
+#if RP_ENGINE_HIVELY
+        if (ctx->format == Format::kHively)
         {
             if (ctx->hively)
                 hvl_FreeTune(ctx->hively);
             ctx->hively = nullptr;
         }
+#endif
 
         ctx->format = Format::kNone;
         free(ctx->data);
@@ -119,18 +176,22 @@ namespace
         destination[length] = '\0';
     }
 
+#if RP_ENGINE_HIVELY
     bool s_hivelyInitialized = false;
+#endif
 }
 
 extern "C"
 {
     RpContext* rp_create()
     {
+#if RP_ENGINE_HIVELY
         if (!s_hivelyInitialized)
         {
             hvl_InitReplayer();
             s_hivelyInitialized = true;
         }
+#endif
         return static_cast<RpContext*>(calloc(1, sizeof(RpContext)));
     }
 
@@ -156,6 +217,7 @@ extern "C"
         memcpy(ctx->data, data, size);
         ctx->dataSize = size;
 
+#if RP_ENGINE_WAV
         if (HasMagic(ctx->data, size, "RIFF", 0) && HasMagic(ctx->data, size, "WAVE", 8))
         {
             if (drwav_init_memory(&ctx->wav, ctx->data, size, nullptr))
@@ -167,7 +229,9 @@ extern "C"
                 return 1;
             }
         }
+#endif
 
+#if RP_ENGINE_FLAC
         if (HasMagic(ctx->data, size, "fLaC", 0))
         {
             ctx->flac = drflac_open_memory(ctx->data, size, nullptr);
@@ -180,38 +244,9 @@ extern "C"
                 return 1;
             }
         }
+#endif
 
-        // Hively / AHX: THX or HVL magic.
-        if (size >= 4
-            && ((ctx->data[0] == 'T' && ctx->data[1] == 'H' && ctx->data[2] == 'X' && ctx->data[3] < 3)
-                || (ctx->data[0] == 'H' && ctx->data[1] == 'V' && ctx->data[2] == 'L' && ctx->data[3] < 2)))
-        {
-            ctx->hively = hvl_ParseTune(ctx->data, size, 48000, 2,
-                [](size_t allocSize) { return calloc(1, allocSize); },
-                [](void* ptr) { free(ptr); });
-            if (ctx->hively)
-            {
-                ctx->format = Format::kHively;
-                ctx->sampleRate = 48000;
-                ctx->channels = 2;
-                ctx->totalFrames = static_cast<uint64_t>(hvl_GetDuration(ctx->hively)) * 48000 / 1000;
-                ctx->subsongCount = ctx->hively->ht_SubsongNr > 0 ? ctx->hively->ht_SubsongNr : 1;
-                ctx->subsong = 0;
-                CopyFixedString(ctx->title, sizeof(ctx->title), ctx->hively->ht_Name, sizeof(ctx->hively->ht_Name));
-                return 1;
-            }
-        }
-
-        // MP3: let dr_mp3 scan for a valid frame (it also handles ID3 tags).
-        if (drmp3_init_memory(&ctx->mp3, ctx->data, size, nullptr))
-        {
-            ctx->format = Format::kMp3;
-            ctx->sampleRate = ctx->mp3.sampleRate;
-            ctx->channels = ctx->mp3.channels;
-            ctx->totalFrames = drmp3_get_pcm_frame_count(&ctx->mp3);
-            return 1;
-        }
-
+#if RP_ENGINE_PRETRACKER
         // PreTracker: big-endian magic "PRT" + version byte.
         if (size >= 0x5A && ctx->data[0] == 'P' && ctx->data[1] == 'R' && ctx->data[2] == 'T')
         {
@@ -239,6 +274,42 @@ extern "C"
                 return 1;
             }
         }
+#endif
+
+#if RP_ENGINE_HIVELY
+        // Hively / AHX: THX or HVL magic.
+        if (size >= 4
+            && ((ctx->data[0] == 'T' && ctx->data[1] == 'H' && ctx->data[2] == 'X' && ctx->data[3] < 3)
+                || (ctx->data[0] == 'H' && ctx->data[1] == 'V' && ctx->data[2] == 'L' && ctx->data[3] < 2)))
+        {
+            ctx->hively = hvl_ParseTune(ctx->data, size, 48000, 2,
+                [](size_t allocSize) { return calloc(1, allocSize); },
+                [](void* ptr) { free(ptr); });
+            if (ctx->hively)
+            {
+                ctx->format = Format::kHively;
+                ctx->sampleRate = 48000;
+                ctx->channels = 2;
+                ctx->totalFrames = static_cast<uint64_t>(hvl_GetDuration(ctx->hively)) * 48000 / 1000;
+                ctx->subsongCount = ctx->hively->ht_SubsongNr > 0 ? ctx->hively->ht_SubsongNr : 1;
+                ctx->subsong = 0;
+                CopyFixedString(ctx->title, sizeof(ctx->title), ctx->hively->ht_Name, sizeof(ctx->hively->ht_Name));
+                return 1;
+            }
+        }
+#endif
+
+#if RP_ENGINE_MP3
+        // MP3: let dr_mp3 scan for a valid frame (it also handles ID3 tags).
+        if (drmp3_init_memory(&ctx->mp3, ctx->data, size, nullptr))
+        {
+            ctx->format = Format::kMp3;
+            ctx->sampleRate = ctx->mp3.sampleRate;
+            ctx->channels = ctx->mp3.channels;
+            ctx->totalFrames = drmp3_get_pcm_frame_count(&ctx->mp3);
+            return 1;
+        }
+#endif
 
         free(ctx->data);
         ctx->data = nullptr;
@@ -302,6 +373,7 @@ extern "C"
         if (!ctx || index < 0 || index >= ctx->subsongCount)
             return 0;
 
+#if RP_ENGINE_HIVELY
         if (ctx->format == Format::kHively)
         {
             if (!hvl_InitSubsong(ctx->hively, index))
@@ -312,20 +384,25 @@ extern "C"
             ctx->position = 0;
             return 1;
         }
+#endif
 
-        if (ctx->format != Format::kPreTracker)
-            return 0;
+#if RP_ENGINE_PRETRACKER
+        if (ctx->format == Format::kPreTracker)
+        {
+            pre_song_set_subsong(ctx->preTracker, index);
+            pre_song_start(ctx->preTracker);
+            // As above, querying the length advances the player.
+            int length = pre_song_get_length(ctx->preTracker);
+            pre_song_start(ctx->preTracker);
 
-        pre_song_set_subsong(ctx->preTracker, index);
-        pre_song_start(ctx->preTracker);
-        // As above, querying the length advances the player.
-        int length = pre_song_get_length(ctx->preTracker);
-        pre_song_start(ctx->preTracker);
+            ctx->subsong = index;
+            ctx->totalFrames = length > 0 ? static_cast<uint64_t>(length) : 0;
+            ctx->position = 0;
+            return 1;
+        }
+#endif
 
-        ctx->subsong = index;
-        ctx->totalFrames = length > 0 ? static_cast<uint64_t>(length) : 0;
-        ctx->position = 0;
-        return 1;
+        return 0;
     }
 
     int rp_seek(RpContext* ctx, uint64_t frame)
@@ -336,15 +413,22 @@ extern "C"
         int ok = 0;
         switch (ctx->format)
         {
+#if RP_ENGINE_WAV
         case Format::kWav:
             ok = drwav_seek_to_pcm_frame(&ctx->wav, frame) != 0;
             break;
+#endif
+#if RP_ENGINE_FLAC
         case Format::kFlac:
             ok = drflac_seek_to_pcm_frame(ctx->flac, frame) != 0;
             break;
+#endif
+#if RP_ENGINE_MP3
         case Format::kMp3:
             ok = drmp3_seek_to_pcm_frame(&ctx->mp3, frame) != 0;
             break;
+#endif
+#if RP_ENGINE_PRETRACKER
         case Format::kPreTracker:
         {
             // PreTracker has no native seek: restart and discard frames.
@@ -373,6 +457,8 @@ extern "C"
             ctx->position = frame - remaining;
             return 1;
         }
+#endif
+#if RP_ENGINE_HIVELY
         case Format::kHively:
         {
             uint32_t ms = static_cast<uint32_t>(frame * 1000 / 48000);
@@ -380,6 +466,7 @@ extern "C"
             ctx->position = static_cast<uint64_t>(actual) * 48000 / 1000;
             return 1;
         }
+#endif
         default:
             break;
         }
@@ -410,21 +497,30 @@ extern "C"
         uint64_t read = 0;
         switch (ctx->format)
         {
+#if RP_ENGINE_WAV
         case Format::kWav:
             read = drwav_read_pcm_frames_f32(&ctx->wav, frames, ctx->scratch);
             break;
+#endif
+#if RP_ENGINE_FLAC
         case Format::kFlac:
             read = drflac_read_pcm_frames_f32(ctx->flac, frames, ctx->scratch);
             break;
+#endif
+#if RP_ENGINE_MP3
         case Format::kMp3:
             read = drmp3_read_pcm_frames_f32(&ctx->mp3, frames, ctx->scratch);
             break;
+#endif
+#if RP_ENGINE_PRETRACKER
         case Format::kPreTracker:
         {
             int got = pre_song_decode(ctx->preTracker, ctx->scratch, static_cast<int>(frames));
             read = got > 0 ? static_cast<uint64_t>(got) : 0;
             break;
         }
+#endif
+#if RP_ENGINE_HIVELY
         case Format::kHively:
         {
             uint64_t remaining = ctx->totalFrames > ctx->position ? ctx->totalFrames - ctx->position : 0;
@@ -447,6 +543,7 @@ extern "C"
             ctx->position += count;
             return count;
         }
+#endif
         default:
             return 0;
         }
